@@ -1989,6 +1989,12 @@ function alreadyQueued(name, folder){
     (d.status === DL_OK || d.status === DL_RUNNING || d.status === DL_PENDING));
 }
 
+/** Files accepted but not yet handed to DownloadManager. */
+function queuedCount(){
+  try{ return (NATIVE && window.Nyaa.queued) ? window.Nyaa.queued() : 0; }
+  catch(e){ return 0; }
+}
+
 function localDownloads(){
   try{
     if(!NATIVE || !window.Nyaa.downloads) return [];
@@ -2067,9 +2073,10 @@ function renderDownloads(){
 
   const list = localDownloads();
   const active = list.filter(d => d.status === DL_RUNNING || d.status === DL_PENDING).length;
-  $("#ddot").hidden = !active;
+  const waiting = queuedCount();
+  $("#ddot").hidden = !(active || waiting);
 
-  if(!list.length){
+  if(!list.length && !waiting){
     $("#dcount").textContent = "";
     el.innerHTML = '<div class="status">Nothing saved yet.<br><br>' +
       'Open a finished torrent on the <b>TorBox</b> tab and tap <b>Save all</b>, ' +
@@ -2092,7 +2099,8 @@ function renderDownloads(){
   const keys = Object.keys(groups).reverse();   // newest release first
 
   $("#dcount").textContent = keys.length + (keys.length === 1 ? " show" : " shows") +
-                             (active ? " · " + active + " active" : "");
+                             (active ? " · " + active + " active" : "") +
+                             (waiting ? " · " + waiting + " queued" : "");
 
   const html = keys.map(k => {
     const items = groups[k];
@@ -2174,9 +2182,14 @@ function renderDownloads(){
     '</div>';
   }).join("");
 
-  patchList(el, "#scr-downloads", html);
+  const note = waiting
+    ? '<div class="qnote">' + waiting + (waiting === 1 ? " file" : " files") +
+      ' waiting. One downloads at a time, so the first episode finishes ' +
+      'rather than everything crawling together.</div>'
+    : "";
+  patchList(el, "#scr-downloads", note + html);
   decoratePosters(el);
-  if(active) startDlPoll(); else stopDlPoll();
+  if(active || waiting) startDlPoll(); else stopDlPoll();
 }
 
 /* Delete removes the file from the phone, so it asks first — the same

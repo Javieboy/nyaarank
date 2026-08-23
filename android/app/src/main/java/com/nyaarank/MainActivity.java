@@ -194,7 +194,13 @@ public class MainActivity extends Activity {
             @Override
             public void onReceive(Context ctx, Intent intent) {
                 long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-                if (id == -1 || !updateDownloads.remove(id)) return;   // not ours
+                if (id == -1) return;
+
+                if (!updateDownloads.remove(id)) {
+                    // a media file finished, so let the next one start
+                    pumpQueue();
+                    return;
+                }
                 updateDownloads.clear();   // one install is enough
 
                 DownloadManager dm =
@@ -261,6 +267,17 @@ public class MainActivity extends Activity {
             });
         }
         return true;
+    }
+
+    /**
+     * The queue only advances while this Activity is alive to receive the
+     * completion broadcast. If the app was killed mid-batch the rest sat
+     * waiting, so it is topped up whenever you come back.
+     */
+    @Override
+    protected void onResume() {
+        super.onResume();
+        pumpQueue();
     }
 
     @Override
@@ -524,28 +541,32 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {}
         }
 
+        /** How many media files are still waiting for a slot. */
+        @JavascriptInterface
+        public int queued() {
+            return readQueue().length();
+        }
+
         /**
-         * Saves a file into Downloads/nyaarank/&lt;release&gt;/, rather than
-         * dropping every episode of every show loose in Downloads.
+         * Adds a file to the queue rather than starting it. DownloadManager
+         * runs everything it is given in parallel, so saving fourteen episodes
+         * meant fourteen crawling at once and nothing finishing — the first
+         * episode is what you actually want, and it arrived last.
+         *
+         * Saves land in Downloads/nyaarank/&lt;release&gt;/ rather than loose.
          */
         @JavascriptInterface
         public void download(String url, String filename, String folder) {
             try {
-                String name = safeName(filename);
-                String dir = safeFolder(folder);
-                String path = "nyaarank/" + (dir.isEmpty() ? "" : dir + "/") + name;
+                JSONObject job = new JSONObject();
+                job.put("u", url);
+                job.put("n", filename == null ? "" : filename);
+                job.put("f", folder == null ? "" : folder);
 
-                DownloadManager.Request r =
-                        new DownloadManager.Request(Uri.parse(url));
-                r.setTitle(name);
-                r.setDescription(dir.isEmpty() ? "nyaarank" : dir);
-                r.setNotificationVisibility(
-                        DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                r.setDestinationInExternalPublicDir(
-                        Environment.DIRECTORY_DOWNLOADS, path);
-                DownloadManager dm =
-                        (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                if (dm != null) dm.enqueue(r);
+                JSONArray q = readQueue();
+                q.put(job);
+                writeQueue(q);
+                pumpQueue();
             } catch (final Exception e) {
                 final String m = describe(e);
                 runOnUiThread(new Runnable() {
@@ -1192,6 +1213,96 @@ public class MainActivity extends Activity {
                        .trim();
         if (s.length() > 90) s = s.substring(0, 90).trim();
         return s;
+    }
+
+    // ------------------------------------------------------ download queue
+
+    /**
+     * One media download at a time.
+     *
+     * DownloadManager will happily run a whole batch in parallel, which on a
+     * mobile connection means every episode creeps along together and none
+     * completes. Serialising them means episode one is watchable while the
+     * rest are still coming.
+     *
+     * App updates deliberately bypass this — installUpdate enqueues straight
+     * to DownloadManager, so an update is never stuck behind a season.
+     */
+    private static final int MAX_ACTIVE = 1;
+    private static final String QUEUE_KEY = "dl_queue";
+
+    private JSONArray readQueue() {
+        try { return new JSONArray(prefs.getString(QUEUE_KEY, "[]")); }
+        catch (Exception e) { return new JSONArray(); }
+    }
+    private void writeQueue(JSONArray q) {
+        prefs.edit().putString(QUEUE_KEY, q.toString()).apply();
+    }
+
+    /** Media downloads currently running or waiting inside DownloadManager. */
+    private int activeMedia() {
+        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        if (dm == null) return 0;
+        Cursor c = null;
+        int n = 0;
+        try {
+            DownloadManager.Query q = new DownloadManager.Query();
+            q.setFilterByStatus(DownloadManager.STATUS_RUNNING
+                              | DownloadManager.STATUS_PENDING
+                              | DownloadManager.STATUS_PAUSED);
+            c = dm.query(q);
+            while (c != null && c.moveToNext()) {
+                String t = str(c, DownloadManager.COLUMN_TITLE);
+                if (t != null && t.startsWith("nyaarank update")) continue;  // priority lane
+                n++;
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (c != null) try { c.close(); } catch (Exception ignored) {}
+        }
+        return n;
+    }
+
+    /** Starts as many queued files as there are free slots. */
+    private synchronized void pumpQueue() {
+        try {
+            JSONArray q = readQueue();
+            if (q.length() == 0) return;
+
+            int free = MAX_ACTIVE - activeMedia();
+            if (free <= 0) return;
+
+            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            if (dm == null) return;
+
+            JSONArray rest = new JSONArray();
+            for (int i = 0; i < q.length(); i++) {
+                JSONObject job = q.optJSONObject(i);
+                if (job == null) continue;
+                if (free <= 0) { rest.put(job); continue; }
+
+                try {
+                    String name = safeName(job.optString("n"));
+                    String dir  = safeFolder(job.optString("f"));
+                    String path = "nyaarank/" + (dir.isEmpty() ? "" : dir + "/") + name;
+
+                    DownloadManager.Request r =
+                            new DownloadManager.Request(Uri.parse(job.getString("u")));
+                    r.setTitle(name);
+                    r.setDescription(dir.isEmpty() ? "nyaarank" : dir);
+                    r.setNotificationVisibility(
+                            DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    r.setDestinationInExternalPublicDir(
+                            Environment.DIRECTORY_DOWNLOADS, path);
+                    dm.enqueue(r);
+                    free--;
+                } catch (Exception badJob) {
+                    // a job that cannot even be enqueued is dropped, not retried
+                    // forever at the head of the queue
+                }
+            }
+            writeQueue(rest);
+        } catch (Exception ignored) {}
     }
 
     /* Cursor helpers: a missing column throws, and DownloadManager's set
