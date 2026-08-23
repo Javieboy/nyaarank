@@ -595,6 +595,7 @@ function showTab(name){
   for(const b of $("#tabbar").children)
     b.setAttribute("aria-pressed", String(b.dataset.tab === name));
   if(name === "account") refreshAccount();   // on focus, not on a timer
+  if(name === "settings") renderSettings();  // also clears any stuck state
 }
 
 $("#tabbar").addEventListener("click", e => {
@@ -1059,8 +1060,17 @@ async function doUpdateCheck(){
   $("#doUp").onclick = () => {
     try{
       window.Nyaa.installUpdate(rel.url);
-      $("#doUp").disabled = true;
-      $("#doUp").textContent = "Downloading…";
+      const b = $("#doUp");
+      b.disabled = true;
+      b.textContent = "Downloading…";
+      // If the install goes through, this whole screen is replaced along with
+      // the app, so this timer never matters. If the download failed or the
+      // install prompt was dismissed, don't strand the button — there is
+      // otherwise no way back without restarting the app.
+      setTimeout(() => {
+        const btn = $("#doUp");
+        if(btn){ btn.disabled = false; btn.textContent = "Install build " + rel.code + " again"; }
+      }, 15000);
     }catch(e){
       slot.innerHTML = '<p class="err-txt">' + esc(String(e)) + '</p>';
     }
