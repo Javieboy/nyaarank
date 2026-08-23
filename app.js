@@ -1081,6 +1081,7 @@ async function fetchLatestRelease(){
 function renderSettings(){
   const v = appVersion();
   $("#prefs").innerHTML =
+    renderAppearance() +
     '<div class="acard">' +
       '<h3>Version</h3>' +
       '<div class="stat"><span class="k">Installed</span>' +
@@ -1113,6 +1114,7 @@ function renderSettings(){
     '</div>');
   $("#diagBtn").onclick = runDiagnostics;
   $("#tbProbeBtn").onclick = probeTorBox;
+  wireAppearance();
 }
 
 async function runDiagnostics(){
@@ -1188,7 +1190,6 @@ async function doUpdateCheck(){
   };
 }
 
-renderSettings();
 
 /* ====================================================================
    TORBOX — cached lookup, send, transfers
@@ -1895,6 +1896,7 @@ async function lookupShow(release){
  */
 async function decoratePosters(root){
   if(!NATIVE) return;
+  if(look().posters === "off") return;   // skip the network entirely
   const nodes = [...root.querySelectorAll("[data-show]")];
   const groups = {};
   for(const n of nodes){
@@ -2361,3 +2363,109 @@ function dlReason(code){
   if(code >= 400 && code < 500) return "rejected " + code;
   return code ? "error " + code : "failed";
 }
+
+/* ====================================================================
+   APPEARANCE
+
+   Themes are only a redefinition of the custom properties in app.css,
+   so switching one is a single attribute on <html> — no re-render and
+   nothing for the rest of the app to know about.
+
+   Layout variants are deliberately limited to density and posters
+   rather than alternative screens: parallel renderers would double the
+   maintenance of every list, and every list here has already had a bug
+   fixed in one copy and missed in the other.
+   ==================================================================== */
+
+const THEMES = [
+  {id: "",         name: "nyaarank", dots: ["#e85d9e", "#f2b441", "#4fd2c2", "#12131a"]},
+  {id: "midnight", name: "Midnight", dots: ["#5aa9f0", "#e0b256", "#4fd6b0", "#0a0c10"]},
+  {id: "sakura",   name: "Sakura",   dots: ["#f2789f", "#f0b27a", "#7fd6c0", "#17111a"]},
+  {id: "terminal", name: "Terminal", dots: ["#4ee06a", "#d8c65a", "#5ad8c0", "#080a08"]},
+  {id: "paper",    name: "Paper",    dots: ["#8f2d1e", "#7a5f16", "#231f19", "#e6e0d3"]}
+];
+
+const LOOK_KEY = "nyaarank.look";
+
+function look(){
+  try{ return JSON.parse(localStorage.getItem(LOOK_KEY) || "{}"); }
+  catch(e){ return {}; }
+}
+function applyLook(v){
+  const el = document.documentElement;
+  if(v.theme) el.setAttribute("data-theme", v.theme); else el.removeAttribute("data-theme");
+  el.setAttribute("data-density", v.density || "comfortable");
+  el.setAttribute("data-posters", v.posters === "off" ? "off" : "on");
+}
+function saveLook(v){
+  try{ localStorage.setItem(LOOK_KEY, JSON.stringify(v)); }catch(e){}
+  applyLook(v);
+}
+
+/* applied before first paint below, so there is no flash of the default */
+applyLook(look());
+
+function renderAppearance(){
+  const v = look();
+  const swatches = THEMES.map(t =>
+    '<button class="swatch" data-theme-id="' + esc(t.id) + '"' +
+      ' aria-pressed="' + ((v.theme || "") === t.id) + '">' +
+      '<span class="dots">' +
+        t.dots.map(c => '<i style="background:' + esc(c) + '"></i>').join("") +
+      '</span>' + esc(t.name) +
+    '</button>').join("");
+
+  return '<div class="acard">' +
+    '<h3>Appearance</h3>' +
+    '<div class="themes">' + swatches + '</div>' +
+
+    '<div class="frow" style="margin:14px 0 8px">' +
+      '<label>Density</label>' +
+      '<div class="seg" id="segDensity">' +
+        '<button data-den="comfortable" aria-pressed="' + ((v.density || "comfortable") === "comfortable") + '">Comfortable</button>' +
+        '<button data-den="compact" aria-pressed="' + (v.density === "compact") + '">Compact</button>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="frow" style="margin:0 0 4px">' +
+      '<label>Posters</label>' +
+      '<div class="seg" id="segPosters">' +
+        '<button data-pos="on" aria-pressed="' + (v.posters !== "off") + '">Show</button>' +
+        '<button data-pos="off" aria-pressed="' + (v.posters === "off") + '">Hide</button>' +
+      '</div>' +
+    '</div>' +
+    '<p class="hint" style="margin:6px 0 0">Hiding posters skips the artwork lookup ' +
+      'entirely — useful on mobile data.</p>' +
+  '</div>';
+}
+
+function wireAppearance(){
+  const themes = $(".themes");
+  if(themes) themes.onclick = e => {
+    const b = e.target.closest("[data-theme-id]");
+    if(!b) return;
+    const v = look(); v.theme = b.dataset.themeId;
+    saveLook(v);
+    renderSettings();
+  };
+  const den = $("#segDensity");
+  if(den) den.onclick = e => {
+    const b = e.target.closest("[data-den]");
+    if(!b) return;
+    const v = look(); v.density = b.dataset.den;
+    saveLook(v);
+    renderSettings();
+  };
+  const pos = $("#segPosters");
+  if(pos) pos.onclick = e => {
+    const b = e.target.closest("[data-pos]");
+    if(!b) return;
+    const v = look(); v.posters = b.dataset.pos;
+    saveLook(v);
+    renderSettings();
+  };
+}
+
+/* Settings is painted last: it reads THEMES, which is a const in the
+   appearance module and therefore not initialised until this point. */
+renderSettings();

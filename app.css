@@ -1,10 +1,61 @@
+/* ====================================================================
+   THEMES
+
+   Every colour in the app resolves through these, so a theme is only a
+   redefinition of the block below. --rose is the primary accent whatever
+   its actual hue, --gold the secondary, --teal the positive.
+   ==================================================================== */
 :root{
   --ground:#12131a; --panel:#1a1c26; --panel2:#22242f; --line:#2c2f3e;
-  --ink:#dadce8; --muted:#7a7f98;
+  --ink:#dadce8; --ink-hi:#e7e9f4; --muted:#7a7f98;
   --gold:#f2b441; --rose:#e85d9e; --red:#e0575c; --teal:#4fd2c2;
+  --edge-teal:#22453f; --edge-gold:#463c22; --edge-red:#4d2a2c; --edge-rose:#4d2740;
+  --on-accent:#12131a;
+  --sweet-fill:rgba(242,180,65,.3); --sweet-edge:rgba(242,180,65,.7);
+  --red-wash:rgba(224,87,92,.1);
+  --scrim:rgba(8,9,13,.66); --shadow:0 6px 18px rgba(0,0,0,.5);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
 }
+
+/* near-black, cool, low chroma */
+[data-theme="midnight"]{
+  --ground:#0a0c10; --panel:#12151c; --panel2:#1a1f28; --line:#252c38;
+  --ink:#ccd4e0; --ink-hi:#e8eef8; --muted:#6b7688;
+  --gold:#e0b256; --rose:#5aa9f0; --red:#e2606a; --teal:#4fd6b0;
+  --edge-teal:#1c443a; --edge-gold:#453a22; --edge-red:#4a2a2e; --edge-rose:#1e3d5c;
+  --on-accent:#0a0c10;
+  --sweet-fill:rgba(224,178,86,.28); --sweet-edge:rgba(224,178,86,.7);
+  --red-wash:rgba(226,96,106,.1);
+  --scrim:rgba(4,6,10,.7); --shadow:0 6px 20px rgba(0,0,0,.6);
+}
+
+/* warm plum, softer contrast */
+[data-theme="sakura"]{
+  --ground:#17111a; --panel:#211826; --panel2:#2b2032; --line:#3b2b44;
+  --ink:#ecdcea; --ink-hi:#fbeef8; --muted:#9b839e;
+  --gold:#f0b27a; --rose:#f2789f; --red:#e0656b; --teal:#7fd6c0;
+  --edge-teal:#2c4a44; --edge-gold:#4d3a2b; --edge-red:#4f2b30; --edge-rose:#5a2b45;
+  --on-accent:#17111a;
+  --sweet-fill:rgba(240,178,122,.28); --sweet-edge:rgba(240,178,122,.7);
+  --red-wash:rgba(224,101,107,.12);
+  --scrim:rgba(12,7,14,.68); --shadow:0 6px 20px rgba(0,0,0,.5);
+}
+
+/* phosphor */
+[data-theme="terminal"]{
+  --ground:#080a08; --panel:#0e120e; --panel2:#141a14; --line:#1f2a1f;
+  --ink:#b8d9b8; --ink-hi:#d8f0d8; --muted:#5f7a5f;
+  --gold:#d8c65a; --rose:#4ee06a; --red:#e05a5a; --teal:#5ad8c0;
+  --edge-teal:#1c4038; --edge-gold:#3e3a1c; --edge-red:#3e1f1f; --edge-rose:#1c4025;
+  --on-accent:#080a08;
+  --sweet-fill:rgba(216,198,90,.25); --sweet-edge:rgba(216,198,90,.65);
+  --red-wash:rgba(224,90,90,.1);
+  --scrim:rgba(2,4,2,.72); --shadow:0 6px 18px rgba(0,0,0,.7);
+}
+[data-theme="terminal"] body,
+[data-theme="terminal"] .status,
+[data-theme="terminal"] .hint{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--ground);color:var(--ink);overscroll-behavior-y:none}
 body{
@@ -50,7 +101,7 @@ input[type=search]{
 }
 input[type=search]:focus{outline:2px solid var(--rose);outline-offset:1px;border-color:transparent}
 .go{
-  background:var(--rose);color:#12131a;border:0;padding:0 17px;min-height:46px;
+  background:var(--rose);color:var(--on-accent);border:0;padding:0 17px;min-height:46px;
   border-radius:9px;font-weight:700;font-size:15px;cursor:pointer;flex:0 0 auto;
 }
 .go:active{filter:brightness(.9)}
@@ -78,7 +129,7 @@ input[type=range]{flex:1;accent-color:var(--gold);height:26px}
   flex:1;min-width:56px;min-height:38px;background:var(--panel);color:var(--muted);
   border:1px solid var(--line);border-radius:8px;font-size:13px;font-family:inherit;
 }
-.seg button[aria-pressed=true]{background:var(--rose);color:#12131a;border-color:var(--rose);font-weight:650}
+.seg button[aria-pressed=true]{background:var(--rose);color:var(--on-accent);border-color:var(--rose);font-weight:650}
 
 /* ---------- status ---------- */
 .status{color:var(--muted);font-size:13.5px;padding:32px 4px;line-height:1.6}
@@ -106,7 +157,7 @@ input[type=range]{flex:1;accent-color:var(--gold);height:26px}
   min-width:38px;height:32px;border-radius:7px;display:flex;align-items:center;
   justify-content:center;background:var(--panel2);border:1px solid var(--line);
 }
-.s-hi{color:var(--teal);border-color:#22453f} .s-mid{color:var(--gold);border-color:#463c22}
+.s-hi{color:var(--teal);border-color:var(--edge-teal)} .s-mid{color:var(--gold);border-color:var(--edge-gold)}
 .s-lo{color:var(--muted)}
 .grp{font-family:ui-monospace,monospace;font-size:13px;color:var(--rose);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -115,13 +166,13 @@ input[type=range]{flex:1;accent-color:var(--gold);height:26px}
   color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:3px 6px;
   white-space:nowrap;flex:0 0 auto;
 }
-.tier.archival,.tier.great{color:var(--rose);border-color:#4d2740}
-.tier.compact{color:var(--gold);border-color:#463c22}
-.tier.avoid{color:var(--red);border-color:#4d2a2c}
+.tier.archival,.tier.great{color:var(--rose);border-color:var(--edge-rose)}
+.tier.compact{color:var(--gold);border-color:var(--edge-gold)}
+.tier.avoid{color:var(--red);border-color:var(--edge-red)}
 
 .name{
   font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.5;
-  color:#e7e9f4;word-break:break-word;margin-bottom:9px;
+  color:var(--ink-hi);word-break:break-word;margin-bottom:9px;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
 }
 .name.full{-webkit-line-clamp:unset}
@@ -131,8 +182,8 @@ input[type=range]{flex:1;accent-color:var(--gold);height:26px}
   font-family:ui-monospace,monospace;font-size:10px;padding:3px 6px;border-radius:4px;
   background:var(--panel2);border:1px solid var(--line);color:var(--muted);white-space:nowrap;
 }
-.tag.k{color:var(--ink)} .tag.gold{color:var(--gold);border-color:#463c22}
-.tag.teal{color:var(--teal);border-color:#22453f} .tag.red{color:var(--red);border-color:#4d2a2c}
+.tag.k{color:var(--ink)} .tag.gold{color:var(--gold);border-color:var(--edge-gold)}
+.tag.teal{color:var(--teal);border-color:var(--edge-teal)} .tag.red{color:var(--red);border-color:var(--edge-red)}
 
 /* ---------- the size meter: the whole point of the app ---------- */
 .meter{margin:0 0 10px}
@@ -146,8 +197,8 @@ input[type=range]{flex:1;accent-color:var(--gold);height:26px}
   border:1px solid var(--line);
 }
 .sweet{
-  position:absolute;top:0;bottom:0;background:rgba(242,180,65,.3);
-  border-left:1px solid rgba(242,180,65,.7);border-right:1px solid rgba(242,180,65,.7);
+  position:absolute;top:0;bottom:0;background:var(--sweet-fill);
+  border-left:1px solid var(--sweet-edge);border-right:1px solid var(--sweet-edge);
 }
 .pin{position:absolute;top:-4px;width:3px;height:14px;border-radius:2px;
   background:var(--ink);box-shadow:0 0 0 2px var(--panel);margin-left:-1px}
@@ -168,9 +219,9 @@ input[type=range]{flex:1;accent-color:var(--gold);height:26px}
   background:var(--panel2);color:var(--ink);font-size:13px;font-family:inherit;
   display:flex;align-items:center;justify-content:center;text-decoration:none;
 }
-.btn.pri{background:var(--rose);border-color:var(--rose);color:#12131a;font-weight:650}
+.btn.pri{background:var(--rose);border-color:var(--rose);color:var(--on-accent);font-weight:650}
 .btn:active{filter:brightness(.88)}
-.btn.done{background:var(--teal);border-color:var(--teal);color:#12131a;font-weight:650}
+.btn.done{background:var(--teal);border-color:var(--teal);color:var(--on-accent);font-weight:650}
 .peers{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);
   flex:0 0 auto;text-align:right;line-height:1.3}
 .peers b{color:var(--teal);font-weight:600;display:block;font-size:13px}
@@ -212,7 +263,7 @@ footer{
 
 /* ================= detail sheet ================= */
 .scrim{
-  position:fixed;inset:0;background:rgba(8,9,13,.66);z-index:50;
+  position:fixed;inset:0;background:var(--scrim);z-index:50;
   animation:fade .16s ease-out;
 }
 .sheet{
@@ -246,8 +297,8 @@ footer{
   font-weight:650;letter-spacing:.04em;text-transform:uppercase;
   background:var(--panel2);border:1px solid var(--line);color:var(--muted);
 }
-.plan.pro,.plan.standard{color:var(--teal);border-color:#22453f}
-.plan.essential{color:var(--gold);border-color:#463c22}
+.plan.pro,.plan.standard{color:var(--teal);border-color:var(--edge-teal)}
+.plan.essential{color:var(--gold);border-color:var(--edge-gold)}
 
 .stat{display:flex;justify-content:space-between;gap:12px;padding:7px 0;font-size:13.5px}
 .stat+.stat{border-top:1px solid var(--line)}
@@ -268,7 +319,7 @@ footer{
   user-select:all;-webkit-user-select:all;
 }
 .btn-big{
-  display:block;width:100%;background:var(--rose);color:#12131a;border:0;
+  display:block;width:100%;background:var(--rose);color:var(--on-accent);border:0;
   padding:14px;border-radius:10px;font:inherit;font-size:15px;font-weight:650;
   cursor:pointer;margin:10px 0;
 }
@@ -300,12 +351,12 @@ footer{
 .tbrow{margin:0 0 9px}
 .tbrow.over{
   border:1px dashed var(--line);border-radius:8px;padding:8px 10px;
-  background:rgba(224,87,92,.06);
+  background:var(--red-wash);
 }
 .tbnote{font-size:11.5px;color:var(--red);line-height:1.45}
 .btn.tb{
   width:100%;min-height:42px;border-radius:9px;
-  background:var(--panel2);color:var(--teal);border:1px solid #22453f;
+  background:var(--panel2);color:var(--teal);border:1px solid var(--edge-teal);
   font-size:13px;font-weight:600;font-family:inherit;
 }
 .btn.tb:disabled{opacity:.55}
@@ -317,7 +368,7 @@ footer{
 }
 .xname{
   font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.5;
-  color:#e7e9f4;word-break:break-word;margin-bottom:7px;
+  color:var(--ink-hi);word-break:break-word;margin-bottom:7px;
 }
 .xmeta{
   display:flex;justify-content:space-between;gap:10px;
@@ -341,15 +392,15 @@ footer{
   position:fixed;left:13px;right:13px;bottom:calc(66px + var(--safe-b));
   z-index:60;background:var(--panel2);border:1px solid var(--line);
   border-radius:9px;padding:11px 13px;font-size:12.5px;color:var(--ink);
-  box-shadow:0 6px 22px rgba(0,0,0,.45);animation:rise .18s ease-out;
+  box-shadow:var(--shadow);animation:rise .18s ease-out;
 }
 .xcard.gone{opacity:.55}
-.btn.xdl.vid{border-color:#22453f;color:var(--teal)}
+.btn.xdl.vid{border-color:var(--edge-teal);color:var(--teal)}
 .xfile{display:flex;gap:6px;align-items:stretch}
 .xfile .xdl{flex:1;min-width:0}
 .btn.xplay{
   flex:0 0 auto;min-height:38px;padding:0 14px;border-radius:8px;
-  background:var(--panel2);color:var(--teal);border:1px solid #22453f;
+  background:var(--panel2);color:var(--teal);border:1px solid var(--edge-teal);
   font-size:12.5px;font-weight:650;font-family:inherit;
 }
 
@@ -391,7 +442,7 @@ footer{
   margin-top:-18px;                 /* sticks out of the card */
   background:var(--panel2) center/cover no-repeat;
   border:1px solid var(--line);
-  box-shadow:0 6px 18px rgba(0,0,0,.5);
+  box-shadow:var(--shadow);
   position:relative;
 }
 .poster.has-art{border-color:var(--accent)}
@@ -418,7 +469,7 @@ footer{
 /* ---------- batch save ---------- */
 .btn.xall{
   flex:1;min-height:36px;border-radius:8px;
-  background:var(--panel2);color:var(--teal);border:1px solid #22453f;
+  background:var(--panel2);color:var(--teal);border:1px solid var(--edge-teal);
   font-size:12px;font-weight:650;font-family:inherit;
 }
 .btn.xall:disabled{opacity:.6}
@@ -437,11 +488,237 @@ footer{
   color:var(--ink);font-family:ui-monospace,Menlo,monospace;font-size:12px;
   word-break:break-word;
 }
-.btn-big.danger{background:var(--red);color:#12131a}
-.btn.xdel[data-delall]{color:var(--red);border-color:#4d2a2c}
+.btn-big.danger{background:var(--red);color:var(--on-accent)}
+.btn.xdel[data-delall]{color:var(--red);border-color:var(--edge-red)}
 .btn.xretry1{
   flex:0 0 auto;min-height:36px;padding:0 12px;border-radius:8px;
-  background:var(--panel2);color:var(--gold);border:1px solid #463c22;
+  background:var(--panel2);color:var(--gold);border:1px solid var(--edge-gold);
   font-size:12px;font-weight:650;font-family:inherit;
 }
-.btn.xall[data-retryall]{color:var(--gold);border-color:#463c22}
+.btn.xall[data-retryall]{color:var(--gold);border-color:var(--edge-gold)}
+
+/* ================= compact density ================= */
+[data-density="compact"] .card{padding:9px 10px 8px;margin-top:6px}
+[data-density="compact"] .name{font-size:11px;-webkit-line-clamp:2;margin-bottom:6px}
+[data-density="compact"] .tags{gap:3px;margin-bottom:7px}
+[data-density="compact"] .meter{margin-bottom:7px}
+[data-density="compact"] .why{margin-bottom:8px}
+[data-density="compact"] .why li:nth-child(n+3){display:none}   /* one reason is enough */
+[data-density="compact"] .acts .btn,
+[data-density="compact"] .btn.tb{min-height:36px;font-size:12px}
+[data-density="compact"] .xcard{margin-top:8px;padding:10px 11px}
+[data-density="compact"] .poster{width:44px;height:63px;margin-top:-12px}
+[data-density="compact"] .frow2{padding:5px 0}
+[data-density="compact"] .magbox{display:none}
+
+/* posters off — for a slow connection, or if the art is not wanted */
+[data-posters="off"] .poster{display:none}
+[data-posters="off"] .showmeta{color:var(--muted)}
+
+/* theme picker swatches */
+.themes{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px}
+.swatch{
+  flex:1;min-width:70px;border-radius:10px;padding:9px 8px 8px;
+  border:1px solid var(--line);background:var(--panel2);
+  font:inherit;font-size:11px;color:var(--muted);cursor:pointer;
+  display:flex;flex-direction:column;gap:6px;align-items:flex-start;
+}
+.swatch[aria-pressed=true]{border-color:var(--rose);color:var(--ink)}
+.dots{display:flex;gap:3px}
+.dots i{width:11px;height:11px;border-radius:50%;display:block}
+
+/* ====================================================================
+   PAPER
+
+   Reference: Penguin and Pelican reference paperbacks of the 1960s-70s,
+   and Swiss railway timetable typography. Both handle the same problem
+   this app has — dense ranked data that must stay scannable — using
+   rules, tabular figures and a single ink, never boxes or elevation.
+
+   Committed consequences, not decoration:
+     · square corners everywhere; a rule does the separating
+     · no shadow of any kind, including on the posters
+     · one accent, an oxblood ink, used for emphasis and nothing else
+     · hierarchy from type scale and leading, not from panels
+     · the score sits in a left margin like a catalogue entry number
+   ==================================================================== */
+[data-theme="paper"]{
+  --ground:#e6e0d3; --panel:#f0ece1; --panel2:#dcd5c5; --line:#b3aa99;
+  --ink:#231f19; --ink-hi:#100e0a; --muted:#6f675b;
+
+  --rose:#8f2d1e;        /* the ink */
+  --gold:#7a5f16;        /* used only where a second weight is needed */
+  --teal:#2b5844;
+  --red:#8f2d1e;
+
+  --edge-teal:var(--line); --edge-gold:var(--line);
+  --edge-red:var(--line);  --edge-rose:var(--line);
+  --on-accent:#f0ece1;
+
+  --sweet-fill:rgba(143,45,30,.14); --sweet-edge:rgba(143,45,30,.55);
+  --red-wash:rgba(143,45,30,.08);
+  --scrim:rgba(35,31,25,.42);
+  --shadow:none;
+}
+
+/* ---- type: a serif with actual personality for prose, tabular mono
+        for anything you compare down a column ---- */
+[data-theme="paper"] body{
+  font-family:"Noto Serif","Times New Roman",Georgia,serif;
+  font-size:15px;line-height:1.55;
+}
+[data-theme="paper"] .brand{
+  font-family:"Noto Serif",Georgia,serif;font-size:19px;font-weight:700;
+  letter-spacing:-.01em;text-transform:none;
+}
+[data-theme="paper"] .brand b{color:var(--rose)}
+[data-theme="paper"] .brand span{
+  font-size:9.5px;letter-spacing:.14em;color:var(--muted);
+}
+
+/* ---- rules instead of panels ---- */
+[data-theme="paper"] header{
+  border-bottom:2px solid var(--ink);padding-bottom:9px;
+}
+[data-theme="paper"] .card,
+[data-theme="paper"] .acard,
+[data-theme="paper"] .xcard{
+  background:none;border:0;border-bottom:1px solid var(--line);
+  border-radius:0;padding:16px 0 15px;margin:0;
+}
+[data-theme="paper"] .card:first-child,
+[data-theme="paper"] .xcard:first-child{border-top:1px solid var(--line)}
+[data-theme="paper"] .acard{border-bottom:2px solid var(--ink)}
+
+/* ---- the score as a catalogue number in the margin ---- */
+[data-theme="paper"] .chead{
+  align-items:baseline;gap:12px;margin-bottom:6px;
+}
+[data-theme="paper"] .score{
+  background:none;border:0;border-radius:0;
+  font-family:"Noto Serif",Georgia,serif;
+  font-size:30px;font-weight:700;line-height:1;
+  min-width:52px;height:auto;justify-content:flex-start;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em;
+}
+[data-theme="paper"] .s-hi{color:var(--rose)}
+[data-theme="paper"] .s-mid{color:var(--ink)}
+[data-theme="paper"] .s-lo{color:var(--muted)}
+[data-theme="paper"] .grp{
+  font-family:"Noto Serif",Georgia,serif;font-size:15px;font-weight:700;
+  color:var(--ink);
+}
+[data-theme="paper"] .tier{
+  border:0;border-radius:0;padding:0;color:var(--muted);
+  font-size:9.5px;letter-spacing:.16em;
+}
+
+/* ---- the filename stays mono: it is data, not prose ---- */
+[data-theme="paper"] .name,
+[data-theme="paper"] .flabel,
+[data-theme="paper"] .xname,
+[data-theme="paper"] .raw{
+  font-family:"Noto Sans Mono",monospace;font-size:11.5px;color:var(--ink);
+}
+
+/* ---- tags become a comma list, not chips ---- */
+[data-theme="paper"] .tags{gap:0;margin-bottom:9px}
+[data-theme="paper"] .tag{
+  background:none;border:0;border-radius:0;padding:0 10px 0 0;
+  font-family:"Noto Sans Mono",monospace;font-size:10.5px;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.06em;
+}
+[data-theme="paper"] .tag.gold,
+[data-theme="paper"] .tag.teal,
+[data-theme="paper"] .tag.k{color:var(--ink)}
+[data-theme="paper"] .tag.red{color:var(--rose)}
+
+/* ---- the meter, drawn as a measurement scale ---- */
+[data-theme="paper"] .track{
+  background:none;border:0;border-top:1px solid var(--ink);
+  border-radius:0;height:9px;
+}
+[data-theme="paper"] .sweet{
+  background:var(--sweet-fill);
+  border-left:1px solid var(--sweet-edge);border-right:1px solid var(--sweet-edge);
+}
+[data-theme="paper"] .pin{
+  background:var(--rose);box-shadow:none;width:2px;height:13px;top:-2px;
+}
+[data-theme="paper"] .perep{
+  font-family:"Noto Serif",Georgia,serif;font-size:17px;font-weight:700;
+  font-variant-numeric:tabular-nums;
+}
+[data-theme="paper"] .verdict{letter-spacing:.14em;font-size:9.5px}
+[data-theme="paper"] .mscale{font-family:"Noto Sans Mono",monospace;font-size:9px}
+
+/* ---- reasons as an indented note, the way a review sets them ---- */
+[data-theme="paper"] .why{font-size:12.5px;margin-bottom:12px}
+[data-theme="paper"] .why li{color:var(--ink);padding-left:16px}
+[data-theme="paper"] .why li.good:before{content:"+";color:var(--rose)}
+[data-theme="paper"] .why li.bad:before{content:"\2212";color:var(--muted)}
+
+/* ---- controls: square, ruled, no fill except the one accent ---- */
+[data-theme="paper"] .btn,
+[data-theme="paper"] .btn-ghost,
+[data-theme="paper"] .seg button,
+[data-theme="paper"] input[type=search],
+[data-theme="paper"] .adv input{
+  border-radius:0;border:1px solid var(--ink);background:none;color:var(--ink);
+  font-family:"Noto Serif",Georgia,serif;
+}
+[data-theme="paper"] .go,
+[data-theme="paper"] .btn.pri,
+[data-theme="paper"] .btn-big{
+  border-radius:0;background:var(--rose);color:var(--on-accent);
+  border:1px solid var(--rose);font-family:"Noto Serif",Georgia,serif;font-weight:700;
+}
+[data-theme="paper"] .seg button[aria-pressed=true]{
+  background:var(--ink);color:var(--ground);border-color:var(--ink);
+}
+[data-theme="paper"] input[type=search]{font-family:"Noto Sans Mono",monospace}
+
+/* ---- posters: printed plate, squared and ruled, never floating ---- */
+[data-theme="paper"] .poster{
+  border-radius:0;border:1px solid var(--ink);box-shadow:none;margin-top:0;
+  filter:saturate(.85) contrast(1.05);
+}
+[data-theme="paper"] .xcard{border-left:0}
+[data-theme="paper"] .showmeta{
+  font-family:"Noto Serif",Georgia,serif;font-size:12px;color:var(--muted);
+  font-style:italic;font-weight:400;letter-spacing:0;
+}
+
+/* ---- tab bar: a footer rule, not a raised bar ---- */
+[data-theme="paper"] .tabbar{
+  background:var(--ground);border-top:2px solid var(--ink);
+}
+[data-theme="paper"] .tabbar button{color:var(--muted);font-size:9.5px;letter-spacing:.08em}
+[data-theme="paper"] .tabbar button[aria-pressed=true]{color:var(--rose)}
+[data-theme="paper"] .tabbar .dot{background:var(--rose)}
+
+/* ---- progress: a ruled bar, filled solid ---- */
+[data-theme="paper"] .bar{background:none;border:1px solid var(--ink);border-radius:0;height:8px}
+[data-theme="paper"] .bar i{background:var(--rose);border-radius:0}
+[data-theme="paper"] .bar.warn i,[data-theme="paper"] .bar.full i{background:var(--ink)}
+
+/* ---- sheets and misc ---- */
+[data-theme="paper"] .sheet{
+  background:var(--panel);border-top:2px solid var(--ink);border-radius:0;
+}
+[data-theme="paper"] .grab{background:var(--line);border-radius:0;height:2px;width:48px}
+[data-theme="paper"] .toast{
+  background:var(--ink);color:var(--ground);border:0;border-radius:0;box-shadow:none;
+}
+[data-theme="paper"] .spin{border-color:var(--line);border-top-color:var(--rose)}
+[data-theme="paper"] .status code{font-family:"Noto Sans Mono",monospace}
+[data-theme="paper"] .lbl,
+[data-theme="paper"] .acard h3{
+  font-family:"Noto Serif",Georgia,serif;font-size:10px;letter-spacing:.16em;
+  color:var(--muted);font-weight:700;
+}
+[data-theme="paper"] .swatch{border-radius:0}
+[data-theme="paper"] .magbox{
+  background:none;border:0;border-left:2px solid var(--line);border-radius:0;
+  font-family:"Noto Sans Mono",monospace;
+}
