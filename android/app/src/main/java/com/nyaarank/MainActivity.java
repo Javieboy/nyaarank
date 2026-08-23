@@ -402,6 +402,29 @@ public class MainActivity extends Activity {
             }
         }
 
+        /**
+         * Hands a video URL to whatever player the user has. TorBox's own
+         * streaming endpoint is gated above the Essential plan, and Android's
+         * WebView cannot play MKV/HEVC with ASS subtitles anyway — VLC and
+         * MX Player both can.
+         */
+        @JavascriptInterface
+        public void play(String url, String title) {
+            try {
+                Intent view = new Intent(Intent.ACTION_VIEW);
+                view.setDataAndType(Uri.parse(url), "video/*");
+                if (title != null && !title.isEmpty()) {
+                    view.putExtra("title", title);          // VLC and MX read this
+                    view.putExtra("secure_uri", true);
+                }
+                Intent chooser = Intent.createChooser(view, "Play with");
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(chooser);
+            } catch (Exception e) {
+                toast("No video player installed. VLC or MX Player will do.");
+            }
+        }
+
         @JavascriptInterface
         public void download(String url, String filename) {
             try {

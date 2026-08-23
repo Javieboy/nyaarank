@@ -1354,9 +1354,15 @@ async function refreshTransfers(){
           const fid = pickField(f, ["id"], "");
           const fn  = String(pickField(f, ["short_name","name"], "file")).split("/").pop();
           const isVid = /^video\//.test(String(f.mimetype || ""));
-          return '<button class="btn xdl' + (isVid ? " vid" : "") + '" data-tid="' +
-            esc(String(id)) + '" data-fid="' + esc(String(fid)) + '">' +
-            esc(fn) + '</button>';
+          const attrs = 'data-tid="' + esc(String(id)) + '" data-fid="' + esc(String(fid)) +
+                        '" data-name="' + esc(fn) + '"';
+          if(!isVid)
+            return '<button class="btn xdl" ' + attrs + '>' + esc(fn) + '</button>';
+          // Play hands off to VLC/MX; Save goes through DownloadManager.
+          return '<div class="xfile">' +
+            '<button class="btn xdl vid" ' + attrs + '>' + esc(fn) + '</button>' +
+            '<button class="btn xplay" ' + attrs + '>Play</button>' +
+          '</div>';
         }).join("") + '</div>'
       : '';
 
@@ -1406,17 +1412,29 @@ function stopXferPoll(){
 document.addEventListener("visibilitychange", () => { if(document.hidden) stopXferPoll(); });
 
 /* ---- transfer actions ---- */
+/** Direct CDN link for one file. Carries the token — never log or display it. */
+function dlUrl(tid, fid){
+  return TB.BASE + "/torrents/requestdl?token=" + encodeURIComponent(TB.token) +
+         "&torrent_id=" + encodeURIComponent(tid) +
+         "&file_id=" + encodeURIComponent(fid) + "&redirect=true";
+}
+
 $("#xfers").addEventListener("click", async e => {
+  const pl = e.target.closest(".xplay");
+  if(pl){
+    try{
+      window.Nyaa.play(dlUrl(pl.dataset.tid, pl.dataset.fid), pl.dataset.name || "");
+    }catch(err){ alertLine(String(err)); }
+    return;
+  }
+
   const dl = e.target.closest("[data-fid]");
   if(dl){
     dl.disabled = true;
     const was = dl.textContent;
     dl.textContent = "Getting link…";
     try{
-      const url = TB.BASE + "/torrents/requestdl?token=" + encodeURIComponent(TB.token) +
-                  "&torrent_id=" + encodeURIComponent(dl.dataset.tid) +
-                  "&file_id=" + encodeURIComponent(dl.dataset.fid) + "&redirect=true";
-      window.Nyaa.download(url, was);
+      window.Nyaa.download(dlUrl(dl.dataset.tid, dl.dataset.fid), dl.dataset.name || was);
       dl.textContent = "Downloading…";
       setTimeout(() => { dl.disabled = false; dl.textContent = was; }, 6000);
     }catch(err){

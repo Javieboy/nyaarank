@@ -345,3 +345,10 @@ footer{
 }
 .xcard.gone{opacity:.55}
 .btn.xdl.vid{border-color:#22453f;color:var(--teal)}
+.xfile{display:flex;gap:6px;align-items:stretch}
+.xfile .xdl{flex:1;min-width:0}
+.btn.xplay{
+  flex:0 0 auto;min-height:38px;padding:0 14px;border-radius:8px;
+  background:var(--panel2);color:var(--teal);border:1px solid #22453f;
+  font-size:12.5px;font-weight:650;font-family:inherit;
+}
