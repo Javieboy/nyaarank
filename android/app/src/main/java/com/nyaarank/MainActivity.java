@@ -547,6 +547,10 @@ public class MainActivity extends Activity {
     }
 
     private static String attempt(JSONObject spec, URL url, String ip) throws Exception {
+        // HttpsURLConnection validates against the URL host; by IP that is a
+        // literal address and Android rejects the chain. Speak HTTP ourselves.
+        if (ip != null) return httpOverTls(spec, url, ip);
+
         String method = spec.optString("method", "GET").toUpperCase();
 
         HttpURLConnection c = (ip == null)
@@ -602,30 +606,141 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** kind: "json" | "form" | "multipart" | "raw" */
-    private static void writeBody(HttpURLConnection c, JSONObject body) throws Exception {
-        String kind = body.optString("kind", "json");
-        byte[] payload;
+    /**
+     * Speaks HTTP/1.1 directly over an SSLSocket.
+     *
+     * Android's HttpsURLConnection validates the certificate against the URL's
+     * host, and when we connect by IP that host is a literal address, which it
+     * rejects — "trust anchor for certification path not found" — even though
+     * the very same chain over the very same socket validates fine. Proven by
+     * the handshake probe: raw TLS to that IP succeeds on platform trust alone.
+     *
+     * So the by-IP path builds the request itself. "Connection: close" means
+     * the body can be read to EOF, avoiding chunked decoding, and no
+     * Accept-Encoding is sent so nothing arrives compressed.
+     */
+    private static String httpOverTls(JSONObject spec, URL url, String ip) throws Exception {
+        final String host = url.getHost();
+        final String method = spec.optString("method", "GET").toUpperCase();
+        String path = url.getFile();
+        if (path == null || path.isEmpty()) path = "/";
 
+        byte[] payload = null;
+        String contentType = null;
+        JSONObject b = spec.optJSONObject("body");
+        if (b != null && !method.equals("GET") && !method.equals("HEAD")) {
+            Object[] enc = encodeBody(b);
+            contentType = (String) enc[0];
+            payload = (byte[]) enc[1];
+        }
+
+        SSLSocketFactory f = (SSLSocketFactory) SSLSocketFactory.getDefault();
+        SSLSocket sock = null;
+        try {
+            sock = (SSLSocket) f.createSocket();
+            sock.connect(new InetSocketAddress(ip, url.getPort() > 0 ? url.getPort() : 443), CONNECT_MS);
+            sock.setSoTimeout(READ_MS);
+
+            SSLParameters sp = sock.getSSLParameters();
+            sp.setServerNames(Collections.<SNIServerName>singletonList(new SNIHostName(host)));
+            sock.setSSLParameters(sp);
+            sock.startHandshake();
+
+            // The socket layer checks the chain; the name is ours to check.
+            if (!certMatchesHost(sock.getSession(), host)) {
+                throw new IOException("certificate does not match " + host);
+            }
+
+            StringBuilder head = new StringBuilder();
+            head.append(method).append(' ').append(path).append(" HTTP/1.1\r\n");
+            head.append("Host: ").append(host).append("\r\n");
+            head.append("User-Agent: Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 nyaarank/1.0\r\n");
+            head.append("Accept: application/rss+xml, application/xml, text/xml, application/json, */*\r\n");
+            head.append("Connection: close\r\n");
+
+            JSONObject headers = spec.optJSONObject("headers");
+            if (headers != null) {
+                Iterator<String> it = headers.keys();
+                while (it.hasNext()) {
+                    String k = it.next();
+                    head.append(k).append(": ").append(headers.getString(k)).append("\r\n");
+                }
+            }
+            if (payload != null) {
+                head.append("Content-Type: ").append(contentType).append("\r\n");
+                head.append("Content-Length: ").append(payload.length).append("\r\n");
+            }
+            head.append("\r\n");
+
+            OutputStream out = sock.getOutputStream();
+            out.write(head.toString().getBytes(StandardCharsets.ISO_8859_1));
+            if (payload != null) out.write(payload);
+            out.flush();
+
+            InputStream in = sock.getInputStream();
+            String statusLine = readLine(in);
+            if (statusLine == null) throw new IOException("no response");
+            int code = 0;
+            String[] parts = statusLine.split(" ");
+            if (parts.length > 1) code = Integer.parseInt(parts[1].trim());
+
+            String line;
+            while ((line = readLine(in)) != null && !line.isEmpty()) {
+                // headers are not needed: Connection: close makes EOF the end
+            }
+
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) bo.write(buf, 0, n);
+
+            JSONObject res = new JSONObject();
+            res.put("status", code);
+            res.put("body", bo.toString("UTF-8"));
+            return res.toString();
+        } finally {
+            if (sock != null) try { sock.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    /** Reads one CRLF-terminated line without buffering past it. */
+    private static String readLine(InputStream in) throws IOException {
+        ByteArrayOutputStream b = new ByteArrayOutputStream();
+        int c;
+        while ((c = in.read()) != -1) {
+            if (c == '\n') break;
+            if (c != '\r') b.write(c);
+        }
+        if (c == -1 && b.size() == 0) return null;
+        return new String(b.toByteArray(), StandardCharsets.ISO_8859_1);
+    }
+
+    /** kind: "json" | "form" | "multipart" | "raw" -&gt; {contentType, bytes} */
+    private static Object[] encodeBody(JSONObject body) throws Exception {
+        String kind = body.optString("kind", "json");
         if (kind.equals("multipart")) {
             String boundary = "----nyaarank" + System.currentTimeMillis();
-            c.setRequestProperty("Content-Type",
-                    "multipart/form-data; boundary=" + boundary);
-            payload = multipart(body.optJSONObject("data"), boundary);
-        } else if (kind.equals("form")) {
-            c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
-            payload = urlEncoded(body.optJSONObject("data"))
-                    .getBytes(StandardCharsets.UTF_8);
-        } else if (kind.equals("raw")) {
-            c.setRequestProperty("Content-Type",
-                    body.optString("contentType", "text/plain"));
-            payload = body.optString("text", "").getBytes(StandardCharsets.UTF_8);
-        } else {
-            c.setRequestProperty("Content-Type", "application/json");
-            JSONObject data = body.optJSONObject("data");
-            payload = (data == null ? "{}" : data.toString())
-                    .getBytes(StandardCharsets.UTF_8);
+            return new Object[]{ "multipart/form-data; boundary=" + boundary,
+                                 multipart(body.optJSONObject("data"), boundary) };
         }
+        if (kind.equals("form")) {
+            return new Object[]{ "application/x-www-form-urlencoded",
+                                 urlEncoded(body.optJSONObject("data")).getBytes(StandardCharsets.UTF_8) };
+        }
+        if (kind.equals("raw")) {
+            return new Object[]{ body.optString("contentType", "text/plain"),
+                                 body.optString("text", "").getBytes(StandardCharsets.UTF_8) };
+        }
+        JSONObject data = body.optJSONObject("data");
+        return new Object[]{ "application/json",
+                             (data == null ? "{}" : data.toString()).getBytes(StandardCharsets.UTF_8) };
+    }
+
+    /** kind: "json" | "form" | "multipart" | "raw" */
+    private static void writeBody(HttpURLConnection c, JSONObject body) throws Exception {
+        Object[] enc = encodeBody(body);
+        c.setRequestProperty("Content-Type", (String) enc[0]);
+        byte[] payload = (byte[]) enc[1];
 
         c.setDoOutput(true);
         c.setFixedLengthStreamingMode(payload.length);
