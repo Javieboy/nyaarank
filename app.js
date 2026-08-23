@@ -694,11 +694,6 @@ function openSheet(html){
   $("#scrim").hidden = false;
   $("#sheet").hidden = false;
 }
-function closeSheet(){
-  $("#scrim").hidden = true;
-  $("#sheet").hidden = true;
-  $("#sheetbody").innerHTML = "";
-}
 $("#scrim").addEventListener("click", closeSheet);
 
 /* ====================================================================
@@ -1525,20 +1520,17 @@ $("#xfers").addEventListener("click", async e => {
     //
     // This deletes from TorBox itself, not just from this list — on a paid
     // plan that is removing files from your storage.
-    if(del.dataset.armed !== "1"){
-      del.dataset.armed = "1";
-      del.classList.add("armed");
-      del.textContent = "Tap again to delete from TorBox";
-      clearTimeout(+del.dataset.timer || 0);
-      del.dataset.timer = setTimeout(() => {
-        del.dataset.armed = "";
-        del.classList.remove("armed");
-        del.textContent = "Remove";
-      }, 4000);
-      return;
-    }
+    const card = del.closest(".xcard");
+    const label = card ? (card.querySelector(".xname") || {}).textContent || "" : "";
+    const go = await confirmDialog({
+      title: "Delete from TorBox?",
+      body: "This removes it from your TorBox storage, not just from this " +
+            "list. Anything already saved to your phone is unaffected." +
+            (label ? "<br><br><b>" + esc(label) + "</b>" : ""),
+      yes: "Delete from TorBox"
+    });
+    if(!go) return;
 
-    clearTimeout(+del.dataset.timer || 0);
     del.disabled = true;
     del.textContent = "Deleting…";
     try{
@@ -1552,8 +1544,6 @@ $("#xfers").addEventListener("click", async e => {
       refreshTransfers();
     }catch(err){
       del.disabled = false;
-      del.dataset.armed = "";
-      del.classList.remove("armed");
       del.textContent = "Remove";
       alertLine(err.message || String(err));
     }
@@ -2131,8 +2121,9 @@ function renderDownloads(){
           (running ? '<div class="bar mini"><i style="width:' + fpct + '%"></i></div>' : '') +
         '</div>' +
         (ok ? '<button class="btn xplay" data-open="' + esc(String(d.id)) + '">Play</button>' : '') +
-        '<button class="btn xdl ddel" data-dl="' + esc(String(d.id)) + '" title="' +
-          (running ? "Cancel" : "Delete") + '">' + (running ? "✕" : "🗑") + '</button>' +
+        '<button class="btn xdl ddel" data-dl="' + esc(String(d.id)) + '"' +
+          ' data-running="' + (running ? "1" : "0") + '" data-label="' + esc(label) + '">' +
+          (running ? "✕" : "🗑") + '</button>' +
       '</div>';
     }).join("");
 
@@ -2152,6 +2143,11 @@ function renderDownloads(){
       '</div>' +
       '<details class="xfiles"><summary>' + items.length +
         (items.length === 1 ? " file" : " files") + '</summary>' + rows + '</details>' +
+      '<div class="xacts">' +
+        '<button class="btn xdel" data-delall="' +
+          esc(items.map(d => d.id).join(",")) + '" data-show="' + esc(k) + '">' +
+          'Delete all ' + items.length + '</button>' +
+      '</div>' +
     '</div>';
   }).join("");
 
@@ -2162,30 +2158,97 @@ function renderDownloads(){
 
 /* Delete removes the file from the phone, so it asks first — the same
    two-tap pattern as the TorBox remove, for the same reason. */
-$("#dloads").addEventListener("click", e => {
+$("#dloads").addEventListener("click", async e => {
   const open = e.target.closest("[data-open]");
   if(open){
     try{ window.Nyaa.openDownload(open.dataset.open); }catch(err){ alertLine(String(err)); }
     return;
   }
 
-  const b = e.target.closest("[data-dl]");
-  if(!b) return;
-
-  if(b.dataset.armed !== "1"){
-    b.dataset.armed = "1";
-    b.classList.add("armed");
-    b.textContent = "Delete?";
-    clearTimeout(+b.dataset.timer || 0);
-    b.dataset.timer = setTimeout(() => {
-      b.dataset.armed = "";
-      b.classList.remove("armed");
-      b.textContent = "🗑";
-    }, 4000);
+  // delete every file in one release
+  const grp = e.target.closest("[data-delall]");
+  if(grp){
+    const ids = String(grp.dataset.delall).split(",").filter(Boolean);
+    const show = grp.dataset.show || "this release";
+    const ok = await confirmDialog({
+      title: "Delete " + ids.length + (ids.length === 1 ? " file" : " files") + "?",
+      body: "This removes them from your phone, not just from this list.<br><br>" +
+            "<b>" + esc(show) + "</b>",
+      yes: "Delete " + ids.length
+    });
+    if(!ok) return;
+    for(const id of ids){
+      try{ window.Nyaa.cancelDownload(id); }catch(err){}
+    }
+    renderDownloads();
     return;
   }
 
-  clearTimeout(+b.dataset.timer || 0);
+  const b = e.target.closest("[data-dl]");
+  if(!b) return;
+
+  const running = b.dataset.running === "1";
+  const ok = await confirmDialog({
+    title: running ? "Cancel this download?" : "Delete this file?",
+    body: running
+      ? "It will stop and the partial file is discarded.<br><br><b>" + esc(b.dataset.label || "") + "</b>"
+      : "This removes it from your phone, not just from this list.<br><br><b>" +
+        esc(b.dataset.label || "") + "</b>",
+    yes: running ? "Cancel download" : "Delete"
+  });
+  if(!ok) return;
+
   try{ window.Nyaa.cancelDownload(b.dataset.dl); }catch(err){}
   renderDownloads();
 });
+
+/* ====================================================================
+   CONFIRM
+
+   The two-tap pattern could not survive these screens: both lists poll
+   while something is active and re-render, which destroyed the armed
+   button between the first tap and the second.
+
+   A sheet lives outside the list, so a refresh cannot disturb it.
+   window.confirm() is not an option — a WebView with no WebChromeClient
+   suppresses it silently and returns false.
+   ==================================================================== */
+
+let pendingConfirm = null;
+
+function closeSheet(){
+  $("#scrim").hidden = true;
+  $("#sheet").hidden = true;
+  $("#sheetbody").innerHTML = "";
+  if(pendingConfirm){
+    const r = pendingConfirm;
+    pendingConfirm = null;
+    r(false);
+  }
+}
+
+/** Resolves true only if the user actively confirms. */
+function confirmDialog(o){
+  return new Promise(resolve => {
+    pendingConfirm = resolve;
+
+    $("#sheetbody").innerHTML =
+      '<h3 class="lbl">' + esc(o.title) + '</h3>' +
+      '<p class="cfm-body">' + o.body + '</p>' +
+      '<button class="btn-big danger" id="cfmYes">' + esc(o.yes || "Delete") + '</button>' +
+      '<button class="btn-ghost" id="cfmNo">Cancel</button>';
+
+    $("#scrim").hidden = false;
+    $("#sheet").hidden = false;
+
+    const finish = v => {
+      pendingConfirm = null;
+      $("#scrim").hidden = true;
+      $("#sheet").hidden = true;
+      $("#sheetbody").innerHTML = "";
+      resolve(v);
+    };
+    $("#cfmYes").onclick = () => finish(true);
+    $("#cfmNo").onclick  = () => finish(false);
+  });
+}
