@@ -1993,6 +1993,37 @@ function alreadyQueued(name, folder){
 
 const DL_QUEUED = -1;
 
+/* ---- speed and ETA ----
+   DownloadManager exposes no speed, so it is measured: how far the byte
+   count moved between two polls. A single sample jumps around on mobile,
+   so it is smoothed, and the reading is dropped once a download ends. */
+const SPEED = {};
+
+function speedOf(d){
+  const now = Date.now();
+  const prev = SPEED[d.id];
+  let rate = prev ? prev.rate : 0;
+
+  if(prev && now > prev.t && d.done >= prev.b){
+    const inst = (d.done - prev.b) / ((now - prev.t) / 1000);
+    rate = rate ? rate * 0.65 + inst * 0.35 : inst;   // smooth, but still react
+  }
+  SPEED[d.id] = {b: d.done, t: now, rate: rate};
+  return rate;
+}
+
+function forgetSpeed(id){ delete SPEED[id]; }
+
+/** "3 min left", "1h 12m left", or "" when it cannot be known yet. */
+function etaText(d, rate){
+  if(!rate || rate < 1024 || !d.total || d.total <= d.done) return "";
+  const secs = (d.total - d.done) / rate;
+  if(secs < 45)   return Math.max(1, Math.round(secs)) + "s left";
+  if(secs < 3600) return Math.round(secs / 60) + " min left";
+  const h = Math.floor(secs / 3600), m = Math.round((secs % 3600) / 60);
+  return h + "h " + (m ? m + "m " : "") + "left";
+}
+
 /** The waiting files themselves, shaped like DownloadManager rows. */
 function queuedRows(){
   try{
@@ -2151,6 +2182,7 @@ function renderDownloads(){
       const running = d.status === DL_RUNNING || d.status === DL_PENDING;
       const ok = d.status === DL_OK;
       const bad = d.status === DL_FAIL;
+      if(!running && d.id != null) forgetSpeed(d.id);   // stale once it stops
       const fpct = d.total > 0 ? Math.round(d.done / d.total * 100) : 0;
 
       return '<div class="frow2' + (queued ? " waiting" : "") + '">' +
@@ -2160,8 +2192,13 @@ function renderDownloads(){
             (ok ? fmtBytes(d.done)
                : bad ? dlReason(d.reason)
                : queued ? "queued"
-               : running ? fpct + "%  ·  " + fmtBytes(d.done) +
-                           (d.total > 0 ? " of " + fmtBytes(d.total) : "")
+               : running ? (() => {
+                   const rate = speedOf(d);
+                   const eta = etaText(d, rate);
+                   return fpct + "%" +
+                     (rate >= 1024 ? "  ·  " + fmtBytes(rate) + "/s" : "") +
+                     (eta ? "  ·  " + eta : "");
+                 })()
                : esc(DL_LABEL[d.status] || "")) +
           '</div>' +
           (running ? '<div class="bar mini"><i style="width:' + fpct + '%"></i></div>' : '') +
