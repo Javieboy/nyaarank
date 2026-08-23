@@ -1260,7 +1260,7 @@ let xfersDirty = true;
 let xferTimer = null;
 
 const STATE_LABEL = {
-  cached:"cached", completed:"done", uploading:"seeding",
+  cached:"cached", completed:"done", uploading:"seeding", expired:"expired",
   downloading:"downloading", metaDL:"fetching metadata",
   "stalled (no seeds)":"stalled — no seeds", stalled:"stalled",
   paused:"paused", checkingResumeData:"checking"
@@ -1295,7 +1295,7 @@ async function refreshTransfers(){
 
   let list;
   try{
-    const r = await TB.call("/torrents/mylist?bypass_cache=true");
+    const r = await TB.call("/torrents/mylist?bypass_cache=true&limit=50");
     if(!r.env.success) throw new Error(r.env.detail || r.env.error || "failed");
     list = Array.isArray(r.env.data) ? r.env.data : (r.env.data ? [r.env.data] : []);
   }catch(e){
@@ -1313,36 +1313,61 @@ async function refreshTransfers(){
     return;
   }
 
+  // Field names below are the real ones, read off a live mylist response.
+  // progress is a 0-1 float, size is bytes, and download_present is what
+  // actually says whether the files are still on TorBox — a torrent can sit
+  // at progress 1 and still be gone, because TorBox expires them.
   let anyActive = false;
   $("#xfers").innerHTML = list.map(t => {
-    const id    = pickField(t, ["id"], "");
-    const name  = pickField(t, ["name"], "(unnamed)");
-    const state = String(pickField(t, ["download_state","state"], "")).toLowerCase();
-    const prog  = +pickField(t, ["progress"], 0);
-    const done  = !!pickField(t, ["download_finished","download_present"], false)
-                  || state === "completed" || state === "cached";
-    const size  = +pickField(t, ["size"], 0);
-    const pct   = Math.round((prog > 1 ? prog : prog * 100));
-    if(!done) anyActive = true;
+    const id      = pickField(t, ["id"], "");
+    const name    = pickField(t, ["name"], "(unnamed)");
+    const state   = String(pickField(t, ["download_state"], "")).toLowerCase();
+    const pct     = Math.round(Math.max(0, Math.min(1, +pickField(t, ["progress"], 0))) * 100);
+    const size    = +pickField(t, ["size"], 0);
+    const present = pickField(t, ["download_present"], false) === true;
+    const expired = state === "expired" || (pct >= 100 && !present && !!pickField(t, ["expires_at"], null) && !state.startsWith("down"));
+    const done    = present && !expired;
+    const speed   = +pickField(t, ["download_speed"], 0);
+    const eta     = +pickField(t, ["eta"], 0);
+    const seeds   = pickField(t, ["seeds"], null);
+    if(!done && !expired) anyActive = true;
 
-    const files = Array.isArray(t.files) ? t.files : [];
+    // Only offer files that are actually there, and put video first — the
+    // probe asking to stream a readme is what produced a 500 earlier.
+    const files = (Array.isArray(t.files) ? t.files : []).slice().sort((a, b) => {
+      const av = /^video\//.test(String(a.mimetype || "")) ? 0 : 1;
+      const bv = /^video\//.test(String(b.mimetype || "")) ? 0 : 1;
+      return av - bv || (b.size || 0) - (a.size || 0);
+    });
+
     const fileBtns = done && files.length
-      ? '<div class="xfiles">' + files.slice(0, 12).map(f =>
-          '<button class="btn xdl" data-tid="' + esc(String(id)) + '" data-fid="' +
-          esc(String(pickField(f, ["id"], ""))) + '">' +
-          esc(String(pickField(f, ["short_name","name"], "file")).split("/").pop()) +
-          '</button>').join("") + '</div>'
+      ? '<div class="xfiles">' + files.slice(0, 12).map(f => {
+          const fid = pickField(f, ["id"], "");
+          const fn  = String(pickField(f, ["short_name","name"], "file")).split("/").pop();
+          const isVid = /^video\//.test(String(f.mimetype || ""));
+          return '<button class="btn xdl' + (isVid ? " vid" : "") + '" data-tid="' +
+            esc(String(id)) + '" data-fid="' + esc(String(fid)) + '">' +
+            esc(fn) + '</button>';
+        }).join("") + '</div>'
       : '';
 
-    return '<div class="xcard">' +
+    const sub = expired ? "expired — TorBox no longer holds these files"
+              : done    ? (files.length + " file" + (files.length === 1 ? "" : "s"))
+              : (speed ? fmtBytes(speed) + "/s" : "") +
+                (eta && eta > 0 && eta < 86400 ? "  ·  " + Math.round(eta / 60) + " min left" : "") +
+                (seeds !== null ? "  ·  " + seeds + " seeds" : "");
+
+    return '<div class="xcard' + (expired ? " gone" : "") + '">' +
       '<div class="xname">' + esc(name) + '</div>' +
       '<div class="xmeta">' +
-        '<span class="' + (done ? "v-good" : "") + '">' +
+        '<span class="' + (expired ? "v-bad" : done ? "v-good" : "") + '">' +
           esc(STATE_LABEL[state] || state || "queued") + '</span>' +
         (size ? '<span>' + esc(fmtBytes(size)) + '</span>' : '') +
       '</div>' +
-      (done ? '' : '<div class="bar"><i style="width:' + Math.max(0, Math.min(100, pct)) + '%"></i></div>') +
-      (done ? '' : '<div class="xmeta"><span>' + pct + '%</span></div>') +
+      (done || expired ? '' :
+        '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+        '<div class="xmeta"><span>' + pct + '%</span></div>') +
+      (sub ? '<div class="xmeta"><span>' + esc(sub) + '</span></div>' : '') +
       fileBtns +
       '<div class="xacts">' +
         '<button class="btn xdel" data-del="' + esc(String(id)) + '">Remove</button>' +
@@ -1448,7 +1473,7 @@ async function probeTorBox(){
 
   const me = await step("GET /user/me", "/user/me", null, 700);
 
-  const list = await step("GET /torrents/mylist", "/torrents/mylist?bypass_cache=true", null, 1600);
+  const list = await step("GET /torrents/mylist", "/torrents/mylist?bypass_cache=true&limit=50", null, 1600);
 
   // Pick a torrent to ask about, so createstream has something real to work on.
   let tid = null, fid = null;
@@ -1457,7 +1482,10 @@ async function probeTorBox(){
   const first = arr && arr.length ? arr[0] : null;
   if(first){
     tid = first.id;
-    if(Array.isArray(first.files) && first.files.length) fid = first.files[0].id;
+    // must be a video that is still present, or createstream answers PGRST116
+    const vids = (first.files || []).filter(f => String(f.mimetype || "").indexOf("video/") === 0);
+    if(vids.length) fid = vids[0].id;
+    else if((first.files || []).length) fid = first.files[0].id;
   }
 
   if(tid !== null && tid !== undefined){

@@ -343,3 +343,5 @@ footer{
   border-radius:9px;padding:11px 13px;font-size:12.5px;color:var(--ink);
   box-shadow:0 6px 22px rgba(0,0,0,.45);animation:rise .18s ease-out;
 }
+.xcard.gone{opacity:.55}
+.btn.xdl.vid{border-color:#22453f;color:var(--teal)}
