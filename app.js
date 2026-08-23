@@ -902,3 +902,113 @@ function renderAccount(d){
 /* boot */
 TB.loadToken();
 renderSignedOut();
+
+/* ====================================================================
+   SETTINGS + SELF UPDATE
+
+   Releases are published to GitHub as tag "v<versionCode>" with the APK
+   attached, so the comparison is a plain integer and never depends on
+   parsing a version string.
+
+   Public repo on purpose: private release assets need an Authorization
+   header, and the only way to give the app one is to ship the token
+   inside the APK, where anyone can unzip it out.
+   ==================================================================== */
+const GH_REPO = "Javieboy/nyaarank";
+
+function appVersion(){
+  try{
+    if(NATIVE && window.Nyaa.appVersion) return JSON.parse(window.Nyaa.appVersion());
+  }catch(e){}
+  return {code: 0, name: "browser"};
+}
+
+async function fetchLatestRelease(){
+  const r = await nativeRequest({
+    method: "GET",
+    url: "https://api.github.com/repos/" + GH_REPO + "/releases/latest",
+    headers: {"Accept": "application/vnd.github+json", "User-Agent": "nyaarank"}
+  });
+  if(r.status === 404) throw new Error("No releases published yet.");
+  if(r.status !== 200) throw new Error("GitHub returned HTTP " + r.status);
+
+  const j = JSON.parse(r.body);
+  const tag = String(j.tag_name || "");
+  const code = parseInt(tag.replace(/^v/i, ""), 10);
+  const apk = (j.assets || []).filter(a => /\.apk$/i.test(a.name || ""))[0];
+  return {
+    code: isFinite(code) ? code : 0,
+    tag: tag,
+    url: apk ? apk.browser_download_url : "",
+    size: apk ? apk.size : 0,
+    notes: String(j.body || "").trim()
+  };
+}
+
+function renderSettings(){
+  const v = appVersion();
+  $("#prefs").innerHTML =
+    '<div class="acard">' +
+      '<h3>Version</h3>' +
+      '<div class="stat"><span class="k">Installed</span>' +
+        '<span class="v">' + esc(v.name) + '  (build ' + esc(String(v.code)) + ')</span></div>' +
+      '<div id="upslot"></div>' +
+    '</div>' +
+    (NATIVE ? '' :
+      '<p class="hint">Updates only apply to the Android build.</p>');
+
+  const slot = $("#upslot");
+  if(!NATIVE){ slot.innerHTML = ''; return; }
+  slot.innerHTML = '<button class="btn-ghost" id="chkUp">Check for updates</button>';
+  $("#chkUp").onclick = doUpdateCheck;
+}
+
+async function doUpdateCheck(){
+  const slot = $("#upslot");
+  slot.innerHTML = '<p class="hint"><span class="spin"></span> Checking…</p>';
+  const v = appVersion();
+  let rel;
+  try{
+    rel = await fetchLatestRelease();
+  }catch(e){
+    slot.innerHTML = '<p class="err-txt">' + esc(e.message || String(e)) + '</p>' +
+      '<button class="btn-ghost" id="chkUp">Try again</button>';
+    $("#chkUp").onclick = doUpdateCheck;
+    return;
+  }
+
+  if(!rel.url){
+    slot.innerHTML = '<p class="hint">Latest release ' + esc(rel.tag) +
+      ' has no APK attached.</p>' +
+      '<button class="btn-ghost" id="chkUp">Check again</button>';
+    $("#chkUp").onclick = doUpdateCheck;
+    return;
+  }
+
+  if(rel.code <= v.code){
+    slot.innerHTML = '<p class="hint">You are on the latest build.</p>' +
+      '<button class="btn-ghost" id="chkUp">Check again</button>';
+    $("#chkUp").onclick = doUpdateCheck;
+    return;
+  }
+
+  slot.innerHTML =
+    '<p class="hint" style="color:var(--teal)">Build ' + esc(String(rel.code)) +
+      ' is available' + (rel.size ? ' (' + esc(fmtBytes(rel.size)) + ')' : '') + '.</p>' +
+    (rel.notes ? '<pre class="raw">' + esc(rel.notes.slice(0, 700)) + '</pre>' : '') +
+    '<button class="btn-big" id="doUp">Download and install</button>' +
+    '<p class="hint">Android will ask permission to install from nyaarank the ' +
+      'first time. The download continues in the notification shade.</p>';
+
+  $("#doUp").onclick = () => {
+    try{
+      window.Nyaa.installUpdate(rel.url);
+      $("#doUp").disabled = true;
+      $("#doUp").textContent = "Downloading…";
+    }catch(e){
+      slot.innerHTML = '<p class="err-txt">' + esc(String(e)) + '</p>';
+    }
+  };
+}
+
+renderSettings();

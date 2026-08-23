@@ -2,10 +2,14 @@ package com.nyaarank;
 
 import android.app.Activity;
 import android.app.DownloadManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.webkit.JavascriptInterface;
@@ -89,6 +93,9 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private final ExecutorService pool = Executors.newFixedThreadPool(3);
 
+    private long updateDownloadId = -1;
+    private BroadcastReceiver downloadDone;
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -115,6 +122,53 @@ public class MainActivity extends Activity {
 
         setContentView(web);
         web.loadUrl(ENTRY);
+
+        registerDownloadWatcher();
+    }
+
+    /** Fires the package installer once our update APK finishes downloading. */
+    private void registerDownloadWatcher() {
+        downloadDone = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ctx, Intent intent) {
+                long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                if (id == -1 || id != updateDownloadId) return;   // not ours
+                updateDownloadId = -1;
+
+                DownloadManager dm =
+                        (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                if (dm == null) return;
+                Uri apk = dm.getUriForDownloadedFile(id);
+                if (apk == null) { toast("Update download failed"); return; }
+
+                try {
+                    Intent i = new Intent(Intent.ACTION_VIEW);
+                    i.setDataAndType(apk, "application/vnd.android.package-archive");
+                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                             | Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(i);
+                } catch (Exception e) {
+                    toast("Could not open the installer: " + describe(e));
+                }
+            }
+        };
+
+        IntentFilter f = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+        // API 33+ requires an explicit export flag; this is a system broadcast.
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(downloadDone, f, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(downloadDone, f);
+        }
+    }
+
+    private void toast(final String msg) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     /**
@@ -158,6 +212,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (downloadDone != null) {
+            try { unregisterReceiver(downloadDone); } catch (Exception ignored) {}
+            downloadDone = null;
+        }
         pool.shutdownNow();
         if (web != null) {
             web.destroy();
@@ -205,6 +263,47 @@ public class MainActivity extends Activity {
                 openExternal(Uri.parse(url));
             } catch (Exception ignored) {
                 // malformed URL from the page; nothing useful to do
+            }
+        }
+
+        /** {"code":int,"name":string} — what the update check compares against. */
+        @JavascriptInterface
+        public String appVersion() {
+            try {
+                PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+                JSONObject o = new JSONObject();
+                o.put("code", pi.versionCode);
+                o.put("name", pi.versionName);
+                return o.toString();
+            } catch (Exception e) {
+                return "{\"code\":0,\"name\":\"?\"}";
+            }
+        }
+
+        /**
+         * Downloads an APK and hands it to the package installer.
+         *
+         * Uses DownloadManager.getUriForDownloadedFile() rather than a
+         * FileProvider: it already returns a shareable content:// URI, which
+         * keeps this dependency-free (FileProvider lives in AndroidX, which
+         * this project deliberately does not use).
+         */
+        @JavascriptInterface
+        public void installUpdate(String url) {
+            try {
+                DownloadManager.Request r = new DownloadManager.Request(Uri.parse(url));
+                r.setTitle("nyaarank update");
+                r.setMimeType("application/vnd.android.package-archive");
+                r.setNotificationVisibility(
+                        DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                r.setDestinationInExternalFilesDir(
+                        MainActivity.this, Environment.DIRECTORY_DOWNLOADS, "nyaarank-update.apk");
+                DownloadManager dm =
+                        (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                if (dm == null) throw new Exception("no download manager");
+                updateDownloadId = dm.enqueue(r);
+            } catch (final Exception e) {
+                toast("Update download failed to start: " + describe(e));
             }
         }
 
