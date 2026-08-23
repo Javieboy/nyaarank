@@ -2378,11 +2378,11 @@ function dlReason(code){
    ==================================================================== */
 
 const THEMES = [
-  {id: "",         name: "nyaarank", dots: ["#c8502d", "#a8894f", "#e6e0d4", "#1c1a17"]},
-  {id: "paper",    name: "Paper",    dots: ["#8f2d1e", "#7a5f16", "#231f19", "#e6e0d3"]},
+  {id: "",         name: "nyaarank", dots: ["#e85d9e", "#f2b441", "#4fd2c2", "#12131a"]},
   {id: "midnight", name: "Midnight", dots: ["#5aa9f0", "#e0b256", "#4fd6b0", "#0a0c10"]},
+  {id: "sakura",   name: "Sakura",   dots: ["#f2789f", "#f0b27a", "#7fd6c0", "#17111a"]},
   {id: "terminal", name: "Terminal", dots: ["#4ee06a", "#d8c65a", "#5ad8c0", "#080a08"]},
-  {id: "classic",  name: "Classic",  dots: ["#e85d9e", "#f2b441", "#4fd2c2", "#12131a"]}
+  {id: "paper",    name: "Paper",    dots: ["#8f2d1e", "#7a5f16", "#231f19", "#e6e0d3"]}
 ];
 
 const LOOK_KEY = "nyaarank.look";
