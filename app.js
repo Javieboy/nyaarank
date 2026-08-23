@@ -1450,17 +1450,43 @@ $("#xfers").addEventListener("click", async e => {
 
   const del = e.target.closest("[data-del]");
   if(del){
+    // Two taps, not a dialog: window.confirm() is silently suppressed in a
+    // WebView with no WebChromeClient, so it would return false and the
+    // button would simply never work.
+    //
+    // This deletes from TorBox itself, not just from this list — on a paid
+    // plan that is removing files from your storage.
+    if(del.dataset.armed !== "1"){
+      del.dataset.armed = "1";
+      del.classList.add("armed");
+      del.textContent = "Tap again to delete from TorBox";
+      clearTimeout(+del.dataset.timer || 0);
+      del.dataset.timer = setTimeout(() => {
+        del.dataset.armed = "";
+        del.classList.remove("armed");
+        del.textContent = "Remove";
+      }, 4000);
+      return;
+    }
+
+    clearTimeout(+del.dataset.timer || 0);
     del.disabled = true;
+    del.textContent = "Deleting…";
     try{
-      await TB.call("/torrents/controltorrent", {
+      const r = await TB.call("/torrents/controltorrent", {
         method: "POST",
         body: {kind:"json", data:{torrent_id: +del.dataset.del, operation: "delete"}}
       });
+      if(r.env && r.env.success === false)
+        throw new Error(r.env.detail || r.env.error || "delete refused");
       xferDelay = 2000;
       refreshTransfers();
     }catch(err){
       del.disabled = false;
-      alertLine(String(err));
+      del.dataset.armed = "";
+      del.classList.remove("armed");
+      del.textContent = "Remove";
+      alertLine(err.message || String(err));
     }
   }
 });

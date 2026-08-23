@@ -375,3 +375,7 @@ footer{
   font-size:15px;line-height:1;
 }
 .frow2 .btn.xplay{min-height:36px;padding:0 13px}
+.btn.xdel.armed{
+  color:var(--red);border-color:#4d2a2c;background:rgba(224,87,92,.1);
+  font-weight:650;
+}
