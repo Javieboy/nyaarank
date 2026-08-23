@@ -548,11 +548,23 @@ async function run(){
     }
   }catch(err){
     $("#hcount").textContent = "";
+    // The old copy talked about CORS relays and preview frames, neither of
+    // which exists in the app — the native build fetches nyaa directly.
+    const msg = err.message || String(err);
+    const timedOut = /timed out|timeout/i.test(msg);
     out.innerHTML = `<div class="status err"><b>Couldn't reach nyaa.si</b>
-      Every relay failed. Usually one of three things: the free CORS relays are
-      down, your ISP blocks nyaa (a VPN fixes that), or this preview frame blocks
-      outside requests — in that case save this file and open it in Chrome or Safari.
-      <code>${esc(err.message || err)}</code></div>`;
+      ${NATIVE
+        ? (timedOut
+            ? `The connection opened but nyaa didn't answer in time. It sits on a
+               slow offshore host and a mobile connection makes that worse — trying
+               again often works. If it never does, Settings → Run diagnostics will
+               say which stage is failing.`
+            : `Your ISP blocks nyaa.si at DNS, and the app works around that itself.
+               If this keeps happening, Settings → Run diagnostics shows exactly
+               which stage failed.`)
+        : `In a browser nyaa has to be reached through a public CORS relay, and
+           those break constantly. The Android app fetches it directly.`}
+      <code>${esc(msg)}</code></div>`;
   }
   $("#btn").disabled = false;
 }

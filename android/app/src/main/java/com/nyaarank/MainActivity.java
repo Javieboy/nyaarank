@@ -97,7 +97,11 @@ import javax.net.ssl.X509TrustManager;
 public class MainActivity extends Activity {
 
     private static final String ENTRY = "file:///android_asset/index.html";
-    private static final int TIMEOUT_MS = 20000;
+    private static final int CONNECT_MS = 15000;
+    /** Generous: nyaa.si is an offshore host and the route from a mobile
+     *  carrier here is slow to first byte — measured over 12s on a cold
+     *  connection, ~1.3s once warm. 20s was cutting off working requests. */
+    private static final int READ_MS = 45000;
     private static final String PREFS = "nyaarank";
     private static final String KEY_TOKEN = "torbox_token";
 
@@ -542,8 +546,8 @@ public class MainActivity extends Activity {
                 : openByIp(url, ip);
         try {
             c.setRequestMethod(method);
-            c.setConnectTimeout(TIMEOUT_MS);
-            c.setReadTimeout(TIMEOUT_MS);
+            c.setConnectTimeout(CONNECT_MS);
+            c.setReadTimeout(READ_MS);
             c.setInstanceFollowRedirects(true);
             c.setRequestProperty("User-Agent",
                     "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 nyaarank/1.0");
@@ -697,8 +701,8 @@ public class MainActivity extends Activity {
         HttpURLConnection c = (HttpURLConnection) u.openConnection();
         String body;
         try {
-            c.setConnectTimeout(TIMEOUT_MS);
-            c.setReadTimeout(TIMEOUT_MS);
+            c.setConnectTimeout(CONNECT_MS);
+            c.setReadTimeout(READ_MS);
             c.setRequestProperty("Accept", "application/dns-json");
             InputStream in = c.getInputStream();
             ByteArrayOutputStream out = new ByteArrayOutputStream();
