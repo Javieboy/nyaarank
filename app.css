@@ -73,7 +73,10 @@ body{
   position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
   overscroll-behavior-y:contain;padding:0 13px 24px;
 }
-.screen[hidden]{display:none}
+/* hidden must beat every layout rule, including the id-based home
+   layout below — an id selector outranks .screen[hidden] and the search
+   screen was drawing over whichever tab you were on */
+.screen[hidden]{display:none !important}
 
 /* ---------- sticky header ---------- */
 header{
