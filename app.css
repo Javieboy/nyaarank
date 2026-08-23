@@ -726,3 +726,27 @@ footer{
   border:1px solid var(--line);border-radius:10px;background:var(--panel2);
   padding:11px 12px;margin:10px 0 2px;font-size:12px;color:var(--muted);line-height:1.5;
 }
+
+/* ---------- landing ---------- */
+.landing{padding:26px 2px 8px}
+.lead{
+  font-size:19px;color:var(--ink);margin:0 0 22px;font-weight:600;
+  letter-spacing:-.01em;
+}
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin:9px 0 0}
+.chip{
+  background:var(--panel);border:1px solid var(--line);border-radius:9px;
+  color:var(--ink);font:inherit;font-size:13.5px;padding:10px 14px;
+  min-height:42px;cursor:pointer;
+}
+.chip:active{background:var(--panel2);border-color:var(--rose)}
+.linky{
+  background:none;border:0;color:var(--muted);font:inherit;font-size:12px;
+  padding:12px 2px 0;cursor:pointer;text-decoration:underline;
+}
+.pitch{margin-top:34px;padding-top:16px;border-top:1px solid var(--line)}
+.pitch p{color:var(--muted);font-size:12.5px;line-height:1.6;margin:0}
+
+/* queued rows read as pending, not active */
+.frow2.waiting .flabel{color:var(--muted)}
+.frow2.waiting .fsize{color:var(--muted);font-style:italic}

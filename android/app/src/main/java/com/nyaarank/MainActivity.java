@@ -548,6 +548,46 @@ public class MainActivity extends Activity {
         }
 
         /**
+         * The waiting files themselves, so they can be listed beside the one
+         * that is downloading. Names only — the queued URL carries the API
+         * token and never leaves Java.
+         */
+        @JavascriptInterface
+        public String queueList() {
+            JSONArray out = new JSONArray();
+            JSONArray q = readQueue();
+            for (int i = 0; i < q.length(); i++) {
+                JSONObject j = q.optJSONObject(i);
+                if (j == null) continue;
+                try {
+                    JSONObject o = new JSONObject();
+                    o.put("title",  safeName(j.optString("n")));
+                    o.put("folder", safeFolder(j.optString("f")));
+                    o.put("pos", i);
+                    out.put(o);
+                } catch (Exception ignored) {}
+            }
+            return out.toString();
+        }
+
+        /** Drops a file that has not started yet. */
+        @JavascriptInterface
+        public void dequeue(String title, String folder) {
+            try {
+                JSONArray q = readQueue();
+                JSONArray keep = new JSONArray();
+                for (int i = 0; i < q.length(); i++) {
+                    JSONObject j = q.optJSONObject(i);
+                    if (j == null) continue;
+                    boolean match = safeName(j.optString("n")).equals(title)
+                                 && safeFolder(j.optString("f")).equals(folder);
+                    if (!match) keep.put(j);
+                }
+                writeQueue(keep);
+            } catch (Exception ignored) {}
+        }
+
+        /**
          * Adds a file to the queue rather than starting it. DownloadManager
          * runs everything it is given in parallel, so saving fourteen episodes
          * meant fourteen crawling at once and nothing finishing — the first

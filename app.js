@@ -565,6 +565,7 @@ async function run(){
     // The season is stripped from what nyaa is asked, because nyaa matches
     // substrings: "season 1" matches the word Season in a Season 4 title,
     // and "1" matches 1080p. It is applied here instead.
+    rememberSearch(typed);
     const {q, season} = parseQuery(typed);
     const all = await fetchNyaa(q, "1_2", opts.trusted ? "2" : "0");
 
@@ -1936,7 +1937,8 @@ async function decoratePosters(root){
 const DL_PENDING = 1, DL_RUNNING = 2, DL_PAUSED = 4, DL_OK = 8, DL_FAIL = 16;
 
 const DL_LABEL = {
-  1: "queued", 2: "downloading", 4: "paused", 8: "saved", 16: "failed"
+  "-1": "queued", 1: "starting", 2: "downloading", 4: "paused",
+  8: "saved", 16: "failed"
 };
 
 let dlTimer = null;
@@ -1987,6 +1989,19 @@ function alreadyQueued(name, folder){
     String(d.title || "") === n &&
     String(d.folder || "") === f &&
     (d.status === DL_OK || d.status === DL_RUNNING || d.status === DL_PENDING));
+}
+
+const DL_QUEUED = -1;
+
+/** The waiting files themselves, shaped like DownloadManager rows. */
+function queuedRows(){
+  try{
+    if(!NATIVE || !window.Nyaa.queueList) return [];
+    return JSON.parse(window.Nyaa.queueList() || "[]").map(x => ({
+      id: null, title: x.title, folder: x.folder,
+      status: DL_QUEUED, done: 0, total: 0, reason: 0
+    }));
+  }catch(e){ return []; }
 }
 
 /** Files accepted but not yet handed to DownloadManager. */
@@ -2071,9 +2086,9 @@ function renderDownloads(){
     return;
   }
 
-  const list = localDownloads();
+  const list = localDownloads().concat(queuedRows());
   const active = list.filter(d => d.status === DL_RUNNING || d.status === DL_PENDING).length;
-  const waiting = queuedCount();
+  const waiting = list.filter(d => d.status === DL_QUEUED).length;
   $("#ddot").hidden = !(active || waiting);
 
   if(!list.length && !waiting){
@@ -2105,6 +2120,7 @@ function renderDownloads(){
   const html = keys.map(k => {
     const items = groups[k];
     const saved  = items.filter(d => d.status === DL_OK).length;
+    const pend   = items.filter(d => d.status === DL_QUEUED).length;
     const busy   = items.filter(d => d.status === DL_RUNNING || d.status === DL_PENDING);
     const failed = items.filter(d => d.status === DL_FAIL).length;
 
@@ -2112,7 +2128,8 @@ function renderDownloads(){
     const doneBytes  = items.reduce((a, d) => a + (d.done  || 0), 0);
     const pct = totalBytes > 0 ? Math.round(doneBytes / totalBytes * 100) : 0;
 
-    const state = busy.length ? busy.length + " downloading"
+    const state = busy.length ? busy.length + " downloading" + (pend ? " · " + pend + " queued" : "")
+                : pend ? pend + " queued"
                 : failed && !saved ? failed + " failed"
                 : failed ? saved + " saved · " + failed + " failed"
                 : saved + (saved === 1 ? " episode" : " episodes");
@@ -2130,17 +2147,19 @@ function renderDownloads(){
       while(label !== prev && label);
       label = label.trim() || names[i];
 
+      const queued  = d.status === DL_QUEUED;
       const running = d.status === DL_RUNNING || d.status === DL_PENDING;
       const ok = d.status === DL_OK;
       const bad = d.status === DL_FAIL;
       const fpct = d.total > 0 ? Math.round(d.done / d.total * 100) : 0;
 
-      return '<div class="frow2">' +
+      return '<div class="frow2' + (queued ? " waiting" : "") + '">' +
         '<div class="fmain">' +
           '<div class="flabel">' + esc(label) + '</div>' +
           '<div class="fsize' + (bad ? " v-bad" : "") + '">' +
             (ok ? fmtBytes(d.done)
                : bad ? dlReason(d.reason)
+               : queued ? "queued"
                : running ? fpct + "%  ·  " + fmtBytes(d.done) +
                            (d.total > 0 ? " of " + fmtBytes(d.total) : "")
                : esc(DL_LABEL[d.status] || "")) +
@@ -2149,9 +2168,13 @@ function renderDownloads(){
         '</div>' +
         (ok ? '<button class="btn xplay" data-open="' + esc(String(d.id)) + '">Play</button>' : '') +
         (bad ? '<button class="btn xretry1" data-retry="' + esc(String(d.id)) + '">Retry</button>' : '') +
-        '<button class="btn xdl ddel" data-dl="' + esc(String(d.id)) + '"' +
-          ' data-running="' + (running ? "1" : "0") + '" data-label="' + esc(label) + '">' +
-          (running ? "✕" : "🗑") + '</button>' +
+        // a queued file has no DownloadManager id yet, so it is dropped by name
+        (queued
+          ? '<button class="btn xdl ddel" data-deq="' + esc(d.title) +
+            '" data-deqf="' + esc(d.folder || "") + '">✕</button>'
+          : '<button class="btn xdl ddel" data-dl="' + esc(String(d.id)) + '"' +
+            ' data-running="' + (running ? "1" : "0") + '" data-label="' + esc(label) + '">' +
+            (running ? "✕" : "🗑") + '</button>') +
       '</div>';
     }).join("");
 
@@ -2182,12 +2205,8 @@ function renderDownloads(){
     '</div>';
   }).join("");
 
-  const note = waiting
-    ? '<div class="qnote">' + waiting + (waiting === 1 ? " file" : " files") +
-      ' waiting. One downloads at a time, so the first episode finishes ' +
-      'rather than everything crawling together.</div>'
-    : "";
-  patchList(el, "#scr-downloads", note + html);
+  // queued files are listed in place now, so no separate note is needed
+  patchList(el, "#scr-downloads", html);
   decoratePosters(el);
   if(active || waiting) startDlPoll(); else stopDlPoll();
 }
@@ -2216,6 +2235,15 @@ $("#dloads").addEventListener("click", async e => {
     for(const id of ids){
       try{ window.Nyaa.cancelDownload(id); }catch(err){}
     }
+    renderDownloads();
+    return;
+  }
+
+  // dropping something that has not started needs no confirmation:
+  // nothing has been downloaded and nothing is deleted
+  const dq = e.target.closest("[data-deq]");
+  if(dq){
+    try{ window.Nyaa.dequeue(dq.dataset.deq, dq.dataset.deqf || ""); }catch(err){}
     renderDownloads();
     return;
   }
@@ -2482,3 +2510,67 @@ function wireAppearance(){
 /* Settings is painted last: it reads THEMES, which is a const in the
    appearance module and therefore not initialised until this point. */
 renderSettings();
+
+/* ====================================================================
+   LANDING
+
+   The old empty state explained the ranking model to someone who had
+   not asked yet. What you actually want on opening the app is a way to
+   start, so: your recent searches as buttons, and a few shows to tap if
+   there are none.
+   ==================================================================== */
+
+const RECENT_KEY = "nyaarank.recent";
+const STARTERS = ["Frieren", "Konosuba", "Mushishi", "Monogatari", "Re:Zero", "Bocchi"];
+
+function recentSearches(){
+  try{ return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); }
+  catch(e){ return []; }
+}
+function rememberSearch(q){
+  q = String(q || "").trim();
+  if(!q) return;
+  try{
+    const list = recentSearches().filter(x => x.toLowerCase() !== q.toLowerCase());
+    list.unshift(q);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 8)));
+  }catch(e){}
+}
+function forgetSearches(){
+  try{ localStorage.removeItem(RECENT_KEY); }catch(e){}
+  renderLanding();
+}
+
+function renderLanding(){
+  const recent = recentSearches();
+  const chips = (recent.length ? recent : STARTERS)
+    .map(q => '<button class="chip" data-q="' + esc(q) + '">' + esc(q) + '</button>')
+    .join("");
+
+  out.innerHTML =
+    '<div class="landing">' +
+      '<p class="lead">What are you looking for?</p>' +
+
+      '<h3 class="lbl">' + (recent.length ? "Recent" : "Try one of these") + '</h3>' +
+      '<div class="chips">' + chips + '</div>' +
+      (recent.length ? '<button class="linky" id="clearRecent">Clear recent</button>' : '') +
+
+      '<div class="pitch">' +
+        '<p>nyaa sorts by upload date. This ranks by how good the encode is ' +
+          'against how much space it takes — so the best version comes first, ' +
+          'not the newest.</p>' +
+      '</div>' +
+    '</div>';
+
+  const cr = $("#clearRecent");
+  if(cr) cr.onclick = forgetSearches;
+}
+
+out.addEventListener("click", e => {
+  const c = e.target.closest(".chip");
+  if(!c) return;
+  $("#q").value = c.dataset.q;
+  run();
+});
+
+renderLanding();
