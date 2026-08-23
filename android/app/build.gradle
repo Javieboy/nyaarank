@@ -1,0 +1,54 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.nyaarank"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.nyaarank"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+/*
+ * Single source of truth: the app lives at the project root as index.html,
+ * app.css and app.js. Copy them into assets/ at build time so the packaged
+ * copies can never drift from the ones you actually edit.
+ */
+def webApp = ["index.html", "app.css", "app.js"]
+
+tasks.register("syncWebApp", Copy) {
+    from(rootProject.file("..")) {
+        include webApp
+    }
+    into layout.projectDirectory.dir("src/main/assets")
+}
+
+// Fail loudly if a file is renamed at the root and this list is not updated,
+// rather than silently shipping an APK missing its stylesheet.
+tasks.named("syncWebApp") {
+    doFirst {
+        webApp.each { f ->
+            if (!rootProject.file("../${f}").exists()) {
+                throw new GradleException("syncWebApp: missing ${f} at project root")
+            }
+        }
+    }
+}
+tasks.named("preBuild") { dependsOn "syncWebApp" }

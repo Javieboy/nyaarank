@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#12131a">
+<title>nyaarank</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<main id="screens">
+
+  <!-- ============================ SEARCH ============================ -->
+  <section class="screen" id="scr-search">
+    <header>
+      <div class="brand">nyaa<b>rank</b><span id="hcount"></span></div>
+      <div class="searchbar">
+        <input type="search" id="q" placeholder="frieren, mushishi, monogatari…"
+               autocomplete="off" autocapitalize="off" autocorrect="off" enterkeyhint="search">
+        <button class="go" id="btn">Go</button>
+      </div>
+      <button class="filtoggle" id="ftog" aria-expanded="false">
+        <span class="car">▶</span> Filters <span class="now" id="fnow">balanced · 1080p</span>
+      </button>
+      <div class="filters" id="filters">
+        <div class="frow">
+          <label for="thrift">Disk</label>
+          <input type="range" id="thrift" min="0" max="100" value="60" step="5">
+        </div>
+        <div class="frow">
+          <label>Res</label>
+          <div class="seg" id="segres">
+            <button data-v="720p">720p</button>
+            <button data-v="1080p" aria-pressed="true">1080p</button>
+            <button data-v="2160p">4K</button>
+          </div>
+        </div>
+        <div class="frow">
+          <label>Want</label>
+          <div class="seg" id="segopt">
+            <button data-k="dual">Dual audio</button>
+            <button data-k="trusted">Trusted only</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div id="out"><div class="status">Type a show and hit Go.<br><br>
+    Results get ranked by encode reputation and size-per-episode — not by upload date,
+    which is all nyaa sorts by.</div></div>
+
+    <footer id="foot">
+      Tap <b>Copy magnet</b>, then paste into your torrent app (Flud / LibreTorrent on
+      Android, iTorrent on iOS). <b>Open</b> hands off directly if your app is registered
+      for magnet links.
+    </footer>
+  </section>
+
+  <!-- =========================== TRANSFERS ========================== -->
+  <section class="screen" id="scr-transfers" hidden>
+    <header><div class="brand">Transfers</div></header>
+    <div id="xfers"><div class="status">Nothing queued yet.</div></div>
+  </section>
+
+  <!-- ============================ ACCOUNT =========================== -->
+  <section class="screen" id="scr-account" hidden>
+    <header><div class="brand">Account</div></header>
+    <div id="acct"><div class="status"><span class="spin"></span> Checking…</div></div>
+  </section>
+
+  <!-- =========================== SETTINGS =========================== -->
+  <section class="screen" id="scr-settings" hidden>
+    <header><div class="brand">Settings</div></header>
+    <div id="prefs"></div>
+  </section>
+
+</main>
+
+<!-- ============================= TAB BAR ============================ -->
+<nav class="tabbar" id="tabbar">
+  <button data-tab="search" aria-pressed="true">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <span>Search</span>
+  </button>
+  <button data-tab="transfers">
+    <svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>
+    <span>Transfers</span><i class="dot" id="xdot" hidden></i>
+  </button>
+  <button data-tab="account">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+    <span>Account</span>
+  </button>
+  <button data-tab="settings">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/></svg>
+    <span>Settings</span>
+  </button>
+</nav>
+
+<!-- ========================== DETAIL SHEET ========================== -->
+<div class="scrim" id="scrim" hidden></div>
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true">
+  <div class="grab"></div>
+  <div id="sheetbody"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/assets/index.html
+android/app/src/main/assets/app.css
+android/app/src/main/assets/app.js
+*.apk
+*.iml
+.idea/
+
+# scratch
+*.b64
