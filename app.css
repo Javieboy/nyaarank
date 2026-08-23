@@ -750,3 +750,32 @@ footer{
 /* queued rows read as pending, not active */
 .frow2.waiting .flabel{color:var(--muted)}
 .frow2.waiting .fsize{color:var(--muted);font-style:italic}
+
+/* ====================================================================
+   HOME
+   Search sits centred until there is something to show, then the header
+   returns to the top and behaves as normal. Auto margins rather than
+   justify-content, so a tall viewport centres but a short one still
+   scrolls instead of clipping the logo.
+   ==================================================================== */
+#scr-search.home{display:flex;flex-direction:column}
+#scr-search.home header{
+  position:static;margin-top:auto;border-bottom:0;
+  padding-top:0;padding-bottom:0;
+}
+#scr-search.home #out{margin-bottom:auto}
+
+#scr-search.home .brand{
+  font-size:30px;justify-content:center;margin-bottom:22px;letter-spacing:-.03em;
+}
+#scr-search.home .brand span{display:none}
+#scr-search.home .searchbar{max-width:520px;margin:0 auto;width:100%}
+#scr-search.home input[type=search]{text-align:center}
+#scr-search.home .filtoggle{justify-content:center;padding-top:12px}
+#scr-search.home .filtoggle .now{margin-left:0}
+#scr-search.home .filters{max-width:520px;margin:0 auto}
+#scr-search.home #foot{display:none}
+
+#scr-search.home .landing{padding:22px 2px 0;text-align:center}
+#scr-search.home .lead{display:none}
+#scr-search.home .chips{justify-content:center}

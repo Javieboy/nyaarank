@@ -479,6 +479,7 @@ let RESULTS = [];
 let SEASON_NOTE = "";   // e.g. " · S1", shown next to the result count
 
 function render(items, q){
+  $("#scr-search").classList.remove("home");
   RESULTS = items;
   $("#hcount").textContent = items.length ? items.length + " ranked" + SEASON_NOTE : "";
   if(!items.length){
@@ -2558,7 +2559,6 @@ renderSettings();
    ==================================================================== */
 
 const RECENT_KEY = "nyaarank.recent";
-const STARTERS = ["Frieren", "Konosuba", "Mushishi", "Monogatari", "Re:Zero", "Bocchi"];
 
 function recentSearches(){
   try{ return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); }
@@ -2579,25 +2579,20 @@ function forgetSearches(){
 }
 
 function renderLanding(){
+  $("#scr-search").classList.add("home");
   const recent = recentSearches();
-  const chips = (recent.length ? recent : STARTERS)
-    .map(q => '<button class="chip" data-q="' + esc(q) + '">' + esc(q) + '</button>')
-    .join("");
 
-  out.innerHTML =
-    '<div class="landing">' +
-      '<p class="lead">What are you looking for?</p>' +
-
-      '<h3 class="lbl">' + (recent.length ? "Recent" : "Try one of these") + '</h3>' +
-      '<div class="chips">' + chips + '</div>' +
-      (recent.length ? '<button class="linky" id="clearRecent">Clear recent</button>' : '') +
-
-      '<div class="pitch">' +
-        '<p>nyaa sorts by upload date. This ranks by how good the encode is ' +
-          'against how much space it takes — so the best version comes first, ' +
-          'not the newest.</p>' +
-      '</div>' +
-    '</div>';
+  // Nothing but the search itself unless there is history worth offering.
+  out.innerHTML = recent.length
+    ? '<div class="landing">' +
+        '<h3 class="lbl">Recent</h3>' +
+        '<div class="chips">' +
+          recent.map(q => '<button class="chip" data-q="' + esc(q) + '">' +
+                          esc(q) + '</button>').join("") +
+        '</div>' +
+        '<button class="linky" id="clearRecent">Clear recent</button>' +
+      '</div>'
+    : '';
 
   const cr = $("#clearRecent");
   if(cr) cr.onclick = forgetSearches;
