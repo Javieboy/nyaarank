@@ -489,7 +489,32 @@ public class MainActivity extends Activity {
             return arr.toString();
         }
 
-        /** Cancels an in-flight download, or clears a finished row. */
+        /** Opens a finished download in a video player. */
+        @JavascriptInterface
+        public void openDownload(String id) {
+            try {
+                DownloadManager dm =
+                        (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                if (dm == null) return;
+                Uri f = dm.getUriForDownloadedFile(Long.parseLong(id));
+                if (f == null) { toast("That file is no longer on the device"); return; }
+
+                Intent view = new Intent(Intent.ACTION_VIEW);
+                view.setDataAndType(f, "video/*");
+                view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                Intent chooser = Intent.createChooser(view, "Play with");
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(chooser);
+            } catch (Exception e) {
+                toast("Could not open it: " + describe(e));
+            }
+        }
+
+        /**
+         * Cancels an in-flight download, or DELETES a finished one — this is
+         * DownloadManager.remove(), which removes the file from disk, not just
+         * the row from a list. The UI must say so.
+         */
         @JavascriptInterface
         public void cancelDownload(String id) {
             try {

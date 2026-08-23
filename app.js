@@ -1930,61 +1930,6 @@ function localDownloads(){
   }catch(e){ return []; }
 }
 
-function renderDownloads(){
-  const el = $("#dloads");
-  if(!NATIVE){
-    el.innerHTML = '<div class="status">Downloads only exist in the Android app.</div>';
-    return;
-  }
-
-  const list = localDownloads();
-  const active = list.filter(d => d.status === DL_RUNNING || d.status === DL_PENDING).length;
-  $("#ddot").hidden = !active;
-  $("#dcount").textContent = list.length ? list.length + (active ? " · " + active + " active" : "") : "";
-
-  if(!list.length){
-    el.innerHTML = '<div class="status">Nothing downloaded yet.<br><br>' +
-      'Open a completed torrent on the <b>TorBox</b> tab and save a file, ' +
-      'or use <b>Save all</b> to take a whole batch at once.</div>';
-    stopDlPoll();
-    return;
-  }
-
-  // newest first — DownloadManager returns oldest first
-  list.reverse();
-
-  el.innerHTML = list.map(d => {
-    const pct = d.total > 0 ? Math.round(d.done / d.total * 100) : 0;
-    const running = d.status === DL_RUNNING || d.status === DL_PENDING;
-    const failed = d.status === DL_FAIL;
-    const ok = d.status === DL_OK;
-
-    const sub = ok      ? fmtBytes(d.done)
-              : failed  ? "failed" + (d.reason ? " (code " + d.reason + ")" : "")
-              : d.total > 0 ? fmtBytes(d.done) + " of " + fmtBytes(d.total)
-              : fmtBytes(d.done);
-
-    return '<div class="dcard' + (failed ? " bad" : ok ? " ok" : "") + '">' +
-      '<div class="dname">' + esc(d.title || "(unnamed)") + '</div>' +
-      (d.folder ? '<div class="dfolder">' + esc(d.folder) + '</div>' : '') +
-      (running || d.status === DL_PAUSED
-        ? '<div class="bar"><i style="width:' + pct + '%"></i></div>' : '') +
-      '<div class="xmeta">' +
-        '<span class="' + (ok ? "v-good" : failed ? "v-bad" : "") + '">' +
-          esc(DL_LABEL[d.status] || "unknown") +
-          (running && d.total > 0 ? "  ·  " + pct + "%" : "") + '</span>' +
-        '<span>' + esc(sub) + '</span>' +
-      '</div>' +
-      '<div class="xacts">' +
-        '<button class="btn xdel" data-dl="' + esc(String(d.id)) + '">' +
-          (running ? "Cancel" : "Remove from list") + '</button>' +
-      '</div>' +
-    '</div>';
-  }).join("");
-
-  if(active) startDlPoll(); else stopDlPoll();
-}
-
 /* Poll only while this tab is visible and something is moving. */
 function startDlPoll(){
   stopDlPoll();
@@ -1996,13 +1941,6 @@ function startDlPoll(){
 function stopDlPoll(){
   if(dlTimer){ clearTimeout(dlTimer); dlTimer = null; }
 }
-
-$("#dloads").addEventListener("click", e => {
-  const b = e.target.closest("[data-dl]");
-  if(!b) return;
-  try{ window.Nyaa.cancelDownload(b.dataset.dl); }catch(err){}
-  renderDownloads();
-});
 
 /* ====================================================================
    BATCH SAVE
@@ -2033,3 +1971,147 @@ function saveAll(btn){
   alertLine(targets.length + (targets.length === 1 ? " file" : " files") +
             " queued — see the Files tab");
 }
+
+/* ====================================================================
+   FILES, grouped by show
+
+   A flat list of individual files was the wrong shape — you think in
+   shows, not in downloads. So these are grouped by the folder each file
+   was saved into, which is the release name, and given the same poster
+   card treatment as the TorBox tab.
+   ==================================================================== */
+
+function renderDownloads(){
+  const el = $("#dloads");
+  if(!NATIVE){
+    el.innerHTML = '<div class="status">Downloads only exist in the Android app.</div>';
+    return;
+  }
+
+  const list = localDownloads();
+  const active = list.filter(d => d.status === DL_RUNNING || d.status === DL_PENDING).length;
+  $("#ddot").hidden = !active;
+
+  if(!list.length){
+    $("#dcount").textContent = "";
+    el.innerHTML = '<div class="status">Nothing saved yet.<br><br>' +
+      'Open a finished torrent on the <b>TorBox</b> tab and tap <b>Save all</b>, ' +
+      'or save single episodes with the ↓ button.</div>';
+    stopDlPoll();
+    return;
+  }
+
+  // group by the folder each file went into — that is the release name
+  const groups = {};
+  for(const d of list){
+    const k = d.folder || "nyaarank";
+    (groups[k] = groups[k] || []).push(d);
+  }
+  const keys = Object.keys(groups).reverse();   // newest release first
+
+  $("#dcount").textContent = keys.length + (keys.length === 1 ? " show" : " shows") +
+                             (active ? " · " + active + " active" : "");
+
+  el.innerHTML = keys.map(k => {
+    const items = groups[k];
+    const saved  = items.filter(d => d.status === DL_OK).length;
+    const busy   = items.filter(d => d.status === DL_RUNNING || d.status === DL_PENDING);
+    const failed = items.filter(d => d.status === DL_FAIL).length;
+
+    const totalBytes = items.reduce((a, d) => a + (d.total || 0), 0);
+    const doneBytes  = items.reduce((a, d) => a + (d.done  || 0), 0);
+    const pct = totalBytes > 0 ? Math.round(doneBytes / totalBytes * 100) : 0;
+
+    const state = busy.length ? busy.length + " downloading"
+                : failed && !saved ? "failed"
+                : failed ? saved + " saved · " + failed + " failed"
+                : saved + (saved === 1 ? " episode" : " episodes");
+
+    // shared prefix stripping, same as the TorBox file list
+    const names = items.map(d => String(d.title || ""));
+    const pre = sharedPrefix(names);
+
+    const rows = items.map((d, i) => {
+      let label = names[i];
+      if(pre && label.startsWith(pre)) label = label.slice(pre.length);
+      label = label.replace(/\.(mkv|mp4|avi|m4v|webm|ts)$/i, "");
+      let prev;
+      do { prev = label; label = label.replace(/\s*[\[\(][^\]\)]*[\]\)]\s*$/, ""); }
+      while(label !== prev && label);
+      label = label.trim() || names[i];
+
+      const running = d.status === DL_RUNNING || d.status === DL_PENDING;
+      const ok = d.status === DL_OK;
+      const bad = d.status === DL_FAIL;
+      const fpct = d.total > 0 ? Math.round(d.done / d.total * 100) : 0;
+
+      return '<div class="frow2">' +
+        '<div class="fmain">' +
+          '<div class="flabel">' + esc(label) + '</div>' +
+          '<div class="fsize' + (bad ? " v-bad" : "") + '">' +
+            (ok ? fmtBytes(d.done)
+               : bad ? "failed" + (d.reason ? " · code " + d.reason : "")
+               : running ? fpct + "%  ·  " + fmtBytes(d.done) +
+                           (d.total > 0 ? " of " + fmtBytes(d.total) : "")
+               : esc(DL_LABEL[d.status] || "")) +
+          '</div>' +
+          (running ? '<div class="bar mini"><i style="width:' + fpct + '%"></i></div>' : '') +
+        '</div>' +
+        (ok ? '<button class="btn xplay" data-open="' + esc(String(d.id)) + '">Play</button>' : '') +
+        '<button class="btn xdl ddel" data-dl="' + esc(String(d.id)) + '" title="' +
+          (running ? "Cancel" : "Delete") + '">' + (running ? "✕" : "🗑") + '</button>' +
+      '</div>';
+    }).join("");
+
+    return '<div class="xcard" data-show="' + esc(k) + '">' +
+      '<div class="xtop">' +
+        '<div class="poster"></div>' +
+        '<div class="xhead">' +
+          '<div class="showmeta"></div>' +
+          '<div class="xname">' + esc(k) + '</div>' +
+          '<div class="xmeta">' +
+            '<span class="' + (busy.length ? "" : failed && !saved ? "v-bad" : "v-good") + '">' +
+              esc(state) + '</span>' +
+            '<span>' + esc(fmtBytes(doneBytes)) + '</span>' +
+          '</div>' +
+          (busy.length ? '<div class="bar"><i style="width:' + pct + '%"></i></div>' : '') +
+        '</div>' +
+      '</div>' +
+      '<details class="xfiles"><summary>' + items.length +
+        (items.length === 1 ? " file" : " files") + '</summary>' + rows + '</details>' +
+    '</div>';
+  }).join("");
+
+  decoratePosters(el);
+  if(active) startDlPoll(); else stopDlPoll();
+}
+
+/* Delete removes the file from the phone, so it asks first — the same
+   two-tap pattern as the TorBox remove, for the same reason. */
+$("#dloads").addEventListener("click", e => {
+  const open = e.target.closest("[data-open]");
+  if(open){
+    try{ window.Nyaa.openDownload(open.dataset.open); }catch(err){ alertLine(String(err)); }
+    return;
+  }
+
+  const b = e.target.closest("[data-dl]");
+  if(!b) return;
+
+  if(b.dataset.armed !== "1"){
+    b.dataset.armed = "1";
+    b.classList.add("armed");
+    b.textContent = "Delete?";
+    clearTimeout(+b.dataset.timer || 0);
+    b.dataset.timer = setTimeout(() => {
+      b.dataset.armed = "";
+      b.classList.remove("armed");
+      b.textContent = "🗑";
+    }, 4000);
+    return;
+  }
+
+  clearTimeout(+b.dataset.timer || 0);
+  try{ window.Nyaa.cancelDownload(b.dataset.dl); }catch(err){}
+  renderDownloads();
+});
