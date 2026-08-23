@@ -292,3 +292,51 @@ footer{
   word-break:break-all;color:var(--muted);background:var(--panel2);
   border:1px solid var(--line);border-radius:8px;padding:10px;margin:6px 0;
   max-height:300px;overflow:auto}
+
+/* ================= TorBox action on a result ================= */
+.tbrow{margin:0 0 9px}
+.tbrow.over{
+  border:1px dashed var(--line);border-radius:8px;padding:8px 10px;
+  background:rgba(224,87,92,.06);
+}
+.tbnote{font-size:11.5px;color:var(--red);line-height:1.45}
+.btn.tb{
+  width:100%;min-height:42px;border-radius:9px;
+  background:var(--panel2);color:var(--teal);border:1px solid #22453f;
+  font-size:13px;font-weight:600;font-family:inherit;
+}
+.btn.tb:disabled{opacity:.55}
+
+/* ================= transfers ================= */
+.xcard{
+  border:1px solid var(--line);border-radius:12px;background:var(--panel);
+  padding:12px 13px;margin-top:9px;
+}
+.xname{
+  font-family:ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.5;
+  color:#e7e9f4;word-break:break-word;margin-bottom:7px;
+}
+.xmeta{
+  display:flex;justify-content:space-between;gap:10px;
+  font-size:11px;color:var(--muted);margin:4px 0;
+}
+.xfiles{display:flex;flex-direction:column;gap:5px;margin:9px 0 4px}
+.btn.xdl{
+  width:100%;min-height:38px;border-radius:8px;background:var(--panel2);
+  color:var(--ink);border:1px solid var(--line);font-size:11.5px;
+  font-family:ui-monospace,Menlo,monospace;text-align:left;padding:0 10px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.xacts{display:flex;gap:7px;margin-top:9px}
+.btn.xdel{
+  flex:1;min-height:36px;border-radius:8px;background:none;
+  color:var(--muted);border:1px solid var(--line);font-size:12px;font-family:inherit;
+}
+
+/* ================= toast ================= */
+.toast{
+  position:fixed;left:13px;right:13px;bottom:calc(66px + var(--safe-b));
+  z-index:60;background:var(--panel2);border:1px solid var(--line);
+  border-radius:9px;padding:11px 13px;font-size:12.5px;color:var(--ink);
+  box-shadow:0 6px 22px rgba(0,0,0,.45);animation:rise .18s ease-out;
+}

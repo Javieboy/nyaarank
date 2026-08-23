@@ -228,9 +228,19 @@ function scoreItem(it, o){
   else if(mbEp > band[1] && fit < .6) why.push(["bad", fmtMB(mbEp) + "/ep — heavy for what you get"]);
   else if(mbEp < band[0] && fit < .6) why.push(["bad", "only " + fmtMB(mbEp) + "/ep — artefacts likely"]);
 
-  s += Math.min(20, 7 * Math.log10(it.seeders + 1));
-  if(it.seeders === 0){ s -= 25; why.push(["bad","dead — zero seeders"]); }
-  else if(it.seeders < 3) why.push(["bad", "only " + it.seeders + " seeder(s), expect a crawl"]);
+  // Seeders only matter if you are the one downloading the swarm. When
+  // TorBox already has the torrent cached it serves from its own CDN, so a
+  // dead swarm costs nothing — score it as if it were healthy. This is the
+  // whole reason the integration exists: it makes a great encode with two
+  // seeders actually obtainable.
+  if(it.cached){
+    s += 20;
+    why.push(["good","TorBox has this cached — instant, seeders don't matter"]);
+  }else{
+    s += Math.min(20, 7 * Math.log10(it.seeders + 1));
+    if(it.seeders === 0){ s -= 25; why.push(["bad","dead — zero seeders"]); }
+    else if(it.seeders < 3) why.push(["bad", "only " + it.seeders + " seeder(s), expect a crawl"]);
+  }
 
   if(it.trusted){ s += 8; why.push(["good","trusted uploader"]); }
   if(it.remake){ s -= 8; }
@@ -295,6 +305,7 @@ function parseFeed(text){
     const sizeText = pick(el, "size");
     return {
       title, page: pick(el, "guid"), link: pick(el, "link"),
+      hash: hash.toLowerCase(),          // needed for the TorBox cached lookup
       magnet: magnetOf(hash, title),
       sizeText, sizeMB: sizeMB(sizeText),
       seeders: +pick(el, "seeders") || 0,
@@ -484,6 +495,7 @@ function render(items, q){
       <div class="tags">${tagsOf(it)}</div>
       ${meter(it)}
       <ul class="why">${why}</ul>
+      ${tbAction(it, i)}
       <div class="acts">
         <button class="btn pri" data-copy="${i}">Copy magnet</button>
         <a class="btn" href="${esc(it.magnet)}">Open</a>
@@ -523,9 +535,17 @@ async function run(){
   out.innerHTML = `<div class="status"><span class="spin"></span>Searching nyaa…</div>`;
   try{
     const raw = await fetchNyaa(q, "1_2", opts.trusted ? "2" : "0");
-    raw.forEach(it => scoreItem(it, opts));
-    raw.sort((a,b) => b.score - a.score);
-    render(raw.slice(0, 40), q);
+    const top = raw.slice(0, 40);
+
+    // Ask TorBox which of these it already has before scoring: a cached
+    // torrent ignores the seeder penalty, so this changes the order, not
+    // just the badges. Non-fatal — without TorBox the ranking is unchanged.
+    render(top.map(it => (scoreItem(it, opts), it)).sort((a,b) => b.score - a.score), q);
+    if(await markCached(top)){
+      top.forEach(it => scoreItem(it, opts));
+      top.sort((a,b) => b.score - a.score);
+      render(top, q);
+    }
   }catch(err){
     $("#hcount").textContent = "";
     out.innerHTML = `<div class="status err"><b>Couldn't reach nyaa.si</b>
@@ -596,6 +616,8 @@ function showTab(name){
     b.setAttribute("aria-pressed", String(b.dataset.tab === name));
   if(name === "account") refreshAccount();   // on focus, not on a timer
   if(name === "settings") renderSettings();  // also clears any stuck state
+  if(name === "transfers"){ xferDelay = 2000; refreshTransfers(); }
+  else stopXferPoll();                       // never poll a tab you cannot see
 }
 
 $("#tabbar").addEventListener("click", e => {
@@ -1054,23 +1076,20 @@ async function doUpdateCheck(){
       ' is available' + (rel.size ? ' (' + esc(fmtBytes(rel.size)) + ')' : '') + '.</p>' +
     (rel.notes ? '<pre class="raw">' + esc(rel.notes.slice(0, 700)) + '</pre>' : '') +
     '<button class="btn-big" id="doUp">Download and install</button>' +
-    '<p class="hint">Android will ask permission to install from nyaarank the ' +
-      'first time. The download continues in the notification shade.</p>';
+    '<p class="hint" id="upHint">Android will ask permission to install from ' +
+      'nyaarank the first time.</p>';
 
   $("#doUp").onclick = () => {
     try{
       window.Nyaa.installUpdate(rel.url);
-      const b = $("#doUp");
-      b.disabled = true;
-      b.textContent = "Downloading…";
-      // If the install goes through, this whole screen is replaced along with
-      // the app, so this timer never matters. If the download failed or the
-      // install prompt was dismissed, don't strand the button — there is
-      // otherwise no way back without restarting the app.
-      setTimeout(() => {
-        const btn = $("#doUp");
-        if(btn){ btn.disabled = false; btn.textContent = "Install build " + rel.code + " again"; }
-      }, 15000);
+      // Never disable this button. Android's install dialog is dismissed by
+      // tapping anywhere outside it, which is easy to do by accident, and a
+      // disabled button then leaves no way to retry without restarting the
+      // app. The APK is ~44 KB, so re-tapping costs effectively nothing.
+      $("#doUp").textContent = "Install build " + rel.code;
+      $("#upHint").textContent =
+        "Tap Install when Android asks. If that prompt disappears — tapping " +
+        "outside it closes it — just press this button again.";
     }catch(e){
       slot.innerHTML = '<p class="err-txt">' + esc(String(e)) + '</p>';
     }
@@ -1078,3 +1097,259 @@ async function doUpdateCheck(){
 }
 
 renderSettings();
+
+/* ====================================================================
+   TORBOX — cached lookup, send, transfers
+
+   Rate limits shape this: createtorrent is 60/hour for uncached items
+   but 300/min for cached ones, so we always check cached first and
+   never add blind.
+   ==================================================================== */
+
+const CACHE_SEEN = {};        // infoHash -> true/false, per session
+
+/** Per-download cap for the signed-in plan, or 0 if unknown. */
+function planCap(){
+  if(!TB.me) return 0;
+  return PLAN_CAPS[+pickField(TB.me, ["plan"], -1)] || 0;
+}
+
+/**
+ * Batch-checks every result hash in one call and marks it.cached.
+ * Failures are non-fatal: without TorBox the app still ranks normally.
+ */
+async function markCached(items){
+  if(!NATIVE || !TB.signedIn()) return false;
+
+  const need = [];
+  for(const it of items){
+    const h = it.hash;
+    if(!h) continue;
+    if(CACHE_SEEN[h] === undefined) need.push(h);
+    else it.cached = CACHE_SEEN[h];
+  }
+  if(!need.length) return items.some(x => x.cached);
+
+  try{
+    // GET with comma-separated hashes; TorBox documents ~100 per call.
+    const chunk = need.slice(0, 100).join(",");
+    const r = await TB.call("/torrents/checkcached?format=object&hash="
+                            + encodeURIComponent(chunk));
+    if(!r.env || !r.env.success) return false;
+
+    // Shape is not documented. Observed possibilities: an object keyed by
+    // hash, or a list of objects carrying a hash field. Handle both, and
+    // treat anything absent as not cached.
+    const data = r.env.data;
+    const hits = {};
+    if(data && typeof data === "object" && !Array.isArray(data)){
+      for(const k of Object.keys(data)) if(data[k]) hits[k.toLowerCase()] = true;
+    }else if(Array.isArray(data)){
+      for(const e of data){
+        const h = e && (e.hash || e.infoHash);
+        if(h) hits[String(h).toLowerCase()] = true;
+      }
+    }
+
+    for(const h of need) CACHE_SEEN[h] = !!hits[String(h).toLowerCase()];
+    for(const it of items) if(it.hash) it.cached = !!CACHE_SEEN[it.hash];
+    return Object.keys(hits).length > 0;
+  }catch(e){
+    return false;
+  }
+}
+
+/** The Send-to-TorBox row under a result, or "" when it does not apply. */
+function tbAction(it, i){
+  if(!NATIVE || !TB.signedIn()) return "";
+
+  const cap = planCap();
+  const over = cap && it.sizeMB * 1048576 > cap;
+
+  if(over){
+    return '<div class="tbrow over">' +
+      '<span class="tbnote">' + esc(fmtMB(it.sizeMB)) + ' — over your ' +
+      esc(fmtBytes(cap)) + ' per-download limit</span></div>';
+  }
+  return '<div class="tbrow">' +
+    '<button class="btn tb" data-tb="' + i + '">' +
+      (it.cached ? "Send to TorBox — instant" : "Send to TorBox") +
+    '</button></div>';
+}
+
+/** POST createtorrent with the magnet as a multipart field. */
+async function sendToTorBox(it, btn){
+  btn.disabled = true;
+  btn.textContent = "Sending…";
+  try{
+    const r = await TB.call("/torrents/createtorrent", {
+      method: "POST",
+      body: {kind:"multipart", data:{
+        magnet: it.magnet,
+        allow_zip: "true",
+        as_queued: "false"
+      }}
+    });
+    const env = r.env || {};
+    if(!env.success){
+      btn.disabled = false;
+      btn.textContent = "Send to TorBox";
+      // TorBox's `detail` is documented as safe to show verbatim.
+      alertLine(env.detail || env.error || ("HTTP " + r.status));
+      return;
+    }
+    btn.textContent = "Queued ✓";
+    xfersDirty = true;
+    $("#xdot").hidden = false;
+  }catch(e){
+    btn.disabled = false;
+    btn.textContent = "Send to TorBox";
+    alertLine(e.message || String(e));
+  }
+}
+
+function alertLine(msg){
+  const bar = document.createElement("div");
+  bar.className = "toast";
+  bar.textContent = msg;
+  document.body.appendChild(bar);
+  setTimeout(() => bar.remove(), 4200);
+}
+
+/* ====================================================================
+   TRANSFERS
+   ==================================================================== */
+let xfersDirty = true;
+let xferTimer = null;
+
+const STATE_LABEL = {
+  cached:"cached", completed:"done", uploading:"seeding",
+  downloading:"downloading", metaDL:"fetching metadata",
+  "stalled (no seeds)":"stalled — no seeds", stalled:"stalled",
+  paused:"paused", checkingResumeData:"checking"
+};
+
+async function refreshTransfers(){
+  if(!NATIVE || !TB.signedIn()){
+    $("#xfers").innerHTML =
+      '<div class="status">Sign in to TorBox on the Account tab to send ' +
+      'torrents here.</div>';
+    return;
+  }
+  if(!$("#xfers").querySelector(".xcard"))
+    $("#xfers").innerHTML = '<div class="status"><span class="spin"></span> Loading…</div>';
+
+  let list;
+  try{
+    const r = await TB.call("/torrents/mylist?bypass_cache=true");
+    if(!r.env.success) throw new Error(r.env.detail || r.env.error || "failed");
+    list = Array.isArray(r.env.data) ? r.env.data : (r.env.data ? [r.env.data] : []);
+  }catch(e){
+    $("#xfers").innerHTML = '<div class="status err"><b>Couldn\'t load transfers</b>' +
+      '<code>' + esc(e.message || String(e)) + '</code></div>';
+    return;
+  }
+
+  if(!list.length){
+    $("#xfers").innerHTML = '<div class="status">Nothing queued yet.<br><br>' +
+      'Search, then tap <b>Send to TorBox</b> on a result.</div>';
+    $("#xdot").hidden = true;
+    stopXferPoll();
+    return;
+  }
+
+  let anyActive = false;
+  $("#xfers").innerHTML = list.map(t => {
+    const id    = pickField(t, ["id"], "");
+    const name  = pickField(t, ["name"], "(unnamed)");
+    const state = String(pickField(t, ["download_state","state"], "")).toLowerCase();
+    const prog  = +pickField(t, ["progress"], 0);
+    const done  = !!pickField(t, ["download_finished","download_present"], false)
+                  || state === "completed" || state === "cached";
+    const size  = +pickField(t, ["size"], 0);
+    const pct   = Math.round((prog > 1 ? prog : prog * 100));
+    if(!done) anyActive = true;
+
+    const files = Array.isArray(t.files) ? t.files : [];
+    const fileBtns = done && files.length
+      ? '<div class="xfiles">' + files.slice(0, 12).map(f =>
+          '<button class="btn xdl" data-tid="' + esc(String(id)) + '" data-fid="' +
+          esc(String(pickField(f, ["id"], ""))) + '">' +
+          esc(String(pickField(f, ["short_name","name"], "file")).split("/").pop()) +
+          '</button>').join("") + '</div>'
+      : '';
+
+    return '<div class="xcard">' +
+      '<div class="xname">' + esc(name) + '</div>' +
+      '<div class="xmeta">' +
+        '<span class="' + (done ? "v-good" : "") + '">' +
+          esc(STATE_LABEL[state] || state || "queued") + '</span>' +
+        (size ? '<span>' + esc(fmtBytes(size)) + '</span>' : '') +
+      '</div>' +
+      (done ? '' : '<div class="bar"><i style="width:' + Math.max(0, Math.min(100, pct)) + '%"></i></div>') +
+      (done ? '' : '<div class="xmeta"><span>' + pct + '%</span></div>') +
+      fileBtns +
+      '<div class="xacts">' +
+        '<button class="btn xdel" data-del="' + esc(String(id)) + '">Remove</button>' +
+      '</div>' +
+    '</div>';
+  }).join("");
+
+  $("#xdot").hidden = !anyActive;
+  if(anyActive) startXferPoll(); else stopXferPoll();
+}
+
+/* Back off rather than hammering, and never poll a hidden tab — a fixed
+   interval in the background is a battery bug. */
+let xferDelay = 2000;
+function startXferPoll(){
+  stopXferPoll();
+  xferTimer = setTimeout(async () => {
+    if(activeTab !== "transfers" || document.hidden){ stopXferPoll(); return; }
+    await refreshTransfers();
+    xferDelay = Math.min(15000, Math.round(xferDelay * 1.6));
+  }, xferDelay);
+}
+function stopXferPoll(){
+  if(xferTimer){ clearTimeout(xferTimer); xferTimer = null; }
+}
+
+document.addEventListener("visibilitychange", () => { if(document.hidden) stopXferPoll(); });
+
+/* ---- transfer actions ---- */
+$("#xfers").addEventListener("click", async e => {
+  const dl = e.target.closest("[data-fid]");
+  if(dl){
+    dl.disabled = true;
+    const was = dl.textContent;
+    dl.textContent = "Getting link…";
+    try{
+      const url = TB.BASE + "/torrents/requestdl?token=" + encodeURIComponent(TB.token) +
+                  "&torrent_id=" + encodeURIComponent(dl.dataset.tid) +
+                  "&file_id=" + encodeURIComponent(dl.dataset.fid) + "&redirect=true";
+      window.Nyaa.download(url, was);
+      dl.textContent = "Downloading…";
+      setTimeout(() => { dl.disabled = false; dl.textContent = was; }, 6000);
+    }catch(err){
+      dl.disabled = false; dl.textContent = was;
+      alertLine(String(err));
+    }
+    return;
+  }
+
+  const del = e.target.closest("[data-del]");
+  if(del){
+    del.disabled = true;
+    try{
+      await TB.call("/torrents/controltorrent", {
+        method: "POST",
+        body: {kind:"json", data:{torrent_id: +del.dataset.del, operation: "delete"}}
+      });
+      xferDelay = 2000;
+      refreshTransfers();
+    }catch(err){
+      del.disabled = false;
+      alertLine(String(err));
+    }
+  }
+});
