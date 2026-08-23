@@ -555,6 +555,28 @@ public class MainActivity extends Activity {
         }
 
         /**
+         * Queues a file at the FRONT. Used by retry: a file that already
+         * started once should not go to the back of eighteen others, which
+         * is what scrambled a season into a random order.
+         */
+        @JavascriptInterface
+        public void downloadNext(String url, String filename, String folder) {
+            try {
+                JSONObject job = new JSONObject();
+                job.put("u", url);
+                job.put("n", filename == null ? "" : filename);
+                job.put("f", folder == null ? "" : folder);
+
+                JSONArray old = readQueue();
+                JSONArray q = new JSONArray();
+                q.put(job);
+                for (int i = 0; i < old.length(); i++) q.put(old.get(i));
+                writeQueue(q);
+                pumpQueue();
+            } catch (Exception ignored) {}
+        }
+
+        /**
          * Nudges the queue. It normally advances on a download completing,
          * but a download that pauses or fails never completes — so without
          * this the queue could sit still while the user watched it.

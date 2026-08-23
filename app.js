@@ -2444,7 +2444,12 @@ function retryOne(d){
   const rec = dlMapGet(d.title, d.folder);
   if(!rec) return false;
   try{ window.Nyaa.cancelDownload(String(d.id)); }catch(e){}   // clear the failed row
-  try{ saveFile(rec.t, rec.f, d.title, d.folder); }catch(e){ return false; }
+  try{
+    dlMapPut(d.title, d.folder, rec.t, rec.f);
+    // Front of the queue. It was already in progress, and sending it to the
+    // back of eighteen others is what shuffled a season into a random order.
+    window.Nyaa.downloadNext(dlUrl(rec.t, rec.f), d.title, d.folder);
+  }catch(e){ return false; }
   return true;
 }
 
