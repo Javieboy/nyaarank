@@ -555,6 +555,16 @@ public class MainActivity extends Activity {
         }
 
         /**
+         * Nudges the queue. It normally advances on a download completing,
+         * but a download that pauses or fails never completes — so without
+         * this the queue could sit still while the user watched it.
+         */
+        @JavascriptInterface
+        public void pump() {
+            pumpQueue();
+        }
+
+        /**
          * The waiting files themselves, so they can be listed beside the one
          * that is downloading. Names only — the queued URL carries the API
          * token and never leaves Java.
@@ -1293,10 +1303,14 @@ public class MainActivity extends Activity {
         Cursor c = null;
         int n = 0;
         try {
+            // PAUSED deliberately excluded. A paused download uses no
+            // bandwidth, so letting it hold the only slot deadlocked the
+            // whole queue: one file stuck "waiting to retry" stopped
+            // seventeen others from ever starting, and nothing completing
+            // meant nothing ever pumped the queue either.
             DownloadManager.Query q = new DownloadManager.Query();
             q.setFilterByStatus(DownloadManager.STATUS_RUNNING
-                              | DownloadManager.STATUS_PENDING
-                              | DownloadManager.STATUS_PAUSED);
+                              | DownloadManager.STATUS_PENDING);
             c = dm.query(q);
             while (c != null && c.moveToNext()) {
                 String t = str(c, DownloadManager.COLUMN_TITLE);

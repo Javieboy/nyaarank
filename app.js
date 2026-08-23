@@ -2134,6 +2134,7 @@ function saveAll(btn){
 
 function renderDownloads(){
   const el = $("#dloads");
+  try{ if(NATIVE && window.Nyaa.pump) window.Nyaa.pump(); }catch(e){}
   if(!NATIVE){
     el.innerHTML = '<div class="status">Downloads only exist in the Android app.</div>';
     return;
