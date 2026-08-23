@@ -278,6 +278,13 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         pumpQueue();
+
+        // A WebView does not reliably fire visibilitychange when the app is
+        // backgrounded, so the page is told directly. Without this the lists
+        // come back frozen on whatever they last drew.
+        if (web != null) {
+            web.evaluateJavascript("window.__nyaaResume && window.__nyaaResume()", null);
+        }
     }
 
     @Override

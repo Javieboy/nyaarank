@@ -1488,7 +1488,28 @@ function stopXferPoll(){
   if(xferTimer){ clearTimeout(xferTimer); xferTimer = null; }
 }
 
-document.addEventListener("visibilitychange", () => { if(document.hidden) stopXferPoll(); });
+/**
+ * Both lists stop polling when the app goes away, which was the whole story
+ * — nothing ever started them again, so coming back showed a frozen list
+ * with a stale percentage and a nonsense estimate.
+ *
+ * Java also calls __nyaaResume from onResume, because a WebView does not
+ * reliably fire visibilitychange when the app is backgrounded.
+ */
+function onAppResume(){
+  // measured speed is meaningless across a gap of unknown length
+  for(const k in SPEED) delete SPEED[k];
+
+  if(activeTab === "downloads") renderDownloads();
+  else if(activeTab === "transfers"){ xferDelay = 2000; refreshTransfers(); }
+  else if(activeTab === "account") refreshAccount();
+}
+window.__nyaaResume = onAppResume;
+
+document.addEventListener("visibilitychange", () => {
+  if(document.hidden){ stopXferPoll(); stopDlPoll(); return; }
+  onAppResume();
+});
 
 /* ---- transfer actions ---- */
 /** Direct CDN link for one file. Carries the token — never log or display it. */
