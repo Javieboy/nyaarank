@@ -1047,8 +1047,16 @@ function renderSettings(){
         'and send the result.</p>' +
       '<button class="btn-ghost" id="diagBtn">Run diagnostics</button>' +
       '<div id="diagOut"></div>' +
+    '</div>' +
+    '<div class="acard">' +
+      '<h3>TorBox API probe</h3>' +
+      '<p class="hint" style="margin-top:0">Dumps the real response shapes for ' +
+        'mylist and createstream, which are not published. Never prints your token.</p>' +
+      '<button class="btn-ghost" id="tbProbeBtn">Probe TorBox API</button>' +
+      '<div id="tbProbeOut"></div>' +
     '</div>');
   $("#diagBtn").onclick = runDiagnostics;
+  $("#tbProbeBtn").onclick = probeTorBox;
 }
 
 async function runDiagnostics(){
@@ -1400,3 +1408,67 @@ $("#xfers").addEventListener("click", async e => {
     }
   }
 });
+
+/* ====================================================================
+   TORBOX API PROBE
+
+   Four endpoints were written against guessed response shapes because
+   TorBox's OpenAPI spec leaves every responses.200 empty and CORS stops
+   a browser from calling them. This dumps the real ones.
+
+   Never prints the token. requestdl carries it in the query string, so
+   that endpoint is deliberately not called here.
+   ==================================================================== */
+async function probeTorBox(){
+  const out = $("#tbProbeOut");
+  if(!NATIVE || !TB.signedIn()){
+    out.innerHTML = '<p class="hint">Sign in to TorBox first.</p>';
+    return;
+  }
+  out.innerHTML = '<p class="hint"><span class="spin"></span> Probing…</p>';
+
+  const lines = [];
+  const trim = (o, n) => {
+    const s = JSON.stringify(o, null, 1);
+    return s.length > n ? s.slice(0, n) + "\n… (" + s.length + " chars total)" : s;
+  };
+
+  async function step(label, path, opts, cap){
+    try{
+      const r = await TB.call(path, opts);
+      lines.push("### " + label + "   HTTP " + r.status);
+      if(r.env && r.env.error) lines.push("error: " + r.env.error + " — " + (r.env.detail || ""));
+      lines.push(trim(r.env && r.env.data !== undefined ? r.env.data : r.env, cap || 900));
+      return r.env;
+    }catch(e){
+      lines.push("### " + label + "\nFAILED " + (e.message || String(e)));
+      return null;
+    }
+  }
+
+  const me = await step("GET /user/me", "/user/me", null, 700);
+
+  const list = await step("GET /torrents/mylist", "/torrents/mylist?bypass_cache=true", null, 1600);
+
+  // Pick a torrent to ask about, so createstream has something real to work on.
+  let tid = null, fid = null;
+  const arr = list && Array.isArray(list.data) ? list.data
+            : (list && Array.isArray(list) ? list : null);
+  const first = arr && arr.length ? arr[0] : null;
+  if(first){
+    tid = first.id;
+    if(Array.isArray(first.files) && first.files.length) fid = first.files[0].id;
+  }
+
+  if(tid !== null && tid !== undefined){
+    await step("GET /stream/createstream?id=" + tid,
+               "/stream/createstream?id=" + encodeURIComponent(tid) +
+               (fid !== null && fid !== undefined ? "&file_id=" + encodeURIComponent(fid) : ""),
+               null, 1400);
+  }else{
+    lines.push("### /stream/createstream\nskipped — no torrent in the list yet. " +
+               "Send one to TorBox from Search, wait for it, then run this again.");
+  }
+
+  out.innerHTML = '<pre class="raw">' + esc(lines.join("\n\n")) + '</pre>';
+}
