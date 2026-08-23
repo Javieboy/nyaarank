@@ -873,13 +873,26 @@ async function refreshAccount(){
    unknown number falls back to "plan N" rather than guessing a name. */
 const PLAN_NAMES = {0:"free", 1:"essential", 2:"standard", 3:"pro"};
 
-/* Per-download caps are documented on TorBox's API docs, not returned by
-   the API, so they live here. */
+/* Per-download caps are not returned by the API, so they live here.
+   Note the two published sources disagree for Pro: the API error table says
+   536870912000 (500 GiB) while the pricing page says 1 TB. Taking the larger
+   deliberately — being too permissive surfaces TorBox's own error message,
+   which is informative, whereas being too strict blocks a download that
+   would have worked and gives the user no way to try. */
 const PLAN_CAPS = {
-  0: 10737418240,     // 10 GiB
-  1: 214748364800,    // 200 GiB
-  2: 214748364800,    // 200 GiB
-  3: 536870912000     // 500 GiB
+  0: 10737418240,      // free      10 GiB
+  1: 214748364800,     // essential 200 GiB
+  2: 214748364800,     // standard  200 GiB
+  3: 1099511627776     // pro       1 TiB
+};
+
+/* Permanent storage included with each plan — the reason a separate cloud
+   service is mostly redundant once subscribed. */
+const PLAN_STORAGE = {
+  0: 0,
+  1: 322122547200,     // essential 300 GB
+  2: 536870912000,     // standard  500 GB
+  3: 1099511627776     // pro       1 TB
 };
 
 function renderAccount(d){
@@ -900,12 +913,19 @@ function renderAccount(d){
 
   // The per-download cap is the single most consequential number on Free:
   // it decides which search results can go through TorBox at all.
+  const store = PLAN_STORAGE[planNum] || 0;
   const usageHtml = cap
     ? '<div class="acard">' +
         '<h3>Per-download limit</h3>' +
         '<div class="who" style="margin-bottom:2px">' + esc(fmtBytes(cap)) + '</div>' +
-        '<p class="hint" style="margin:0">Any single torrent larger than this ' +
-          'cannot be added to TorBox on your plan.</p>' +
+        '<p class="hint" style="margin:0 0 10px">Any single torrent larger than ' +
+          'this cannot be added to TorBox on your plan.</p>' +
+        (store
+          ? '<h3 style="margin-top:12px">Permanent storage</h3>' +
+            '<div class="who" style="margin-bottom:2px">' + esc(fmtBytes(store)) + '</div>' +
+            '<p class="hint" style="margin:0">Files stay on TorBox, so they need ' +
+              'no space on this phone.</p>'
+          : '') +
       '</div>'
     : '';
 
