@@ -26,5 +26,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Advances the download queue with no app running. Declared here
+             rather than registered by the Activity so Android delivers it
+             either way; DOWNLOAD_COMPLETE is exempt from the Android 8
+             implicit-broadcast restriction, so no service is needed. -->
+        <receiver
+            android:name=".DownloadWatcher"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
+
     </application>
 </manifest>

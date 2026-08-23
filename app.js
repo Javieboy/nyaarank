@@ -1084,6 +1084,7 @@ function renderSettings(){
   const v = appVersion();
   $("#prefs").innerHTML =
     renderAppearance() +
+    renderPlayerCard() +
     '<div class="acard">' +
       '<h3>Version</h3>' +
       '<div class="stat"><span class="k">Installed</span>' +
@@ -1117,6 +1118,7 @@ function renderSettings(){
   $("#diagBtn").onclick = runDiagnostics;
   $("#tbProbeBtn").onclick = probeTorBox;
   wireAppearance();
+  wirePlayer();
 }
 
 async function runDiagnostics(){
@@ -2656,3 +2658,52 @@ out.addEventListener("click", e => {
 });
 
 renderLanding();
+
+/* ====================================================================
+   VIDEO PLAYER
+
+   Android asks which app to use every time because the intent goes out
+   unaddressed, and "always" in that dialog is the system's choice to
+   offer, not ours. Naming the package directly is what skips it.
+   ==================================================================== */
+
+function installedPlayers(){
+  try{
+    if(!NATIVE || !window.Nyaa.players) return [];
+    return JSON.parse(window.Nyaa.players() || "[]");
+  }catch(e){ return []; }
+}
+function chosenPlayer(){
+  try{ return (NATIVE && window.Nyaa.getPlayer) ? window.Nyaa.getPlayer() : ""; }
+  catch(e){ return ""; }
+}
+
+function renderPlayerCard(){
+  if(!NATIVE) return "";
+  const list = installedPlayers();
+  if(!list.length) return "";
+
+  const cur = chosenPlayer();
+  const rows = list.map(p =>
+    '<button class="seg-row" data-player="' + esc(p.pkg) + '"' +
+      ' aria-pressed="' + (cur === p.pkg) + '">' + esc(p.name) + '</button>').join("");
+
+  return '<div class="acard">' +
+    '<h3>Play videos with</h3>' +
+    '<div class="players">' +
+      '<button class="seg-row" data-player="" aria-pressed="' + (!cur) + '">' +
+        'Ask every time</button>' + rows +
+    '</div>' +
+  '</div>';
+}
+
+function wirePlayer(){
+  const box = $(".players");
+  if(!box) return;
+  box.onclick = e => {
+    const b = e.target.closest("[data-player]");
+    if(!b) return;
+    try{ window.Nyaa.setPlayer(b.dataset.player); }catch(err){}
+    renderSettings();
+  };
+}

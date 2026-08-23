@@ -8,6 +8,8 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
@@ -227,6 +229,47 @@ public class MainActivity extends Activity {
             registerReceiver(downloadDone, f, Context.RECEIVER_EXPORTED);
         } else {
             registerReceiver(downloadDone, f);
+        }
+    }
+
+    private static final String KEY_PLAYER = "player_pkg";
+
+    /**
+     * Hands a video to the chosen player, or asks if there is none.
+     *
+     * If the saved player has since been uninstalled the intent would throw,
+     * so that falls back to the chooser and forgets the setting rather than
+     * leaving Play permanently broken.
+     */
+    private void playWith(Uri data, String title) {
+        String pkg = prefs.getString(KEY_PLAYER, "");
+
+        Intent view = new Intent(Intent.ACTION_VIEW);
+        view.setDataAndType(data, "video/*");
+        view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (title != null && !title.isEmpty()) {
+            view.putExtra("title", title);          // VLC and MX read this
+            view.putExtra("secure_uri", true);
+        }
+
+        if (!pkg.isEmpty()) {
+            try {
+                Intent direct = new Intent(view);
+                direct.setPackage(pkg);
+                startActivity(direct);
+                return;
+            } catch (Exception gone) {
+                prefs.edit().remove(KEY_PLAYER).apply();
+                toast("That player is no longer installed — choose another");
+            }
+        }
+
+        try {
+            Intent chooser = Intent.createChooser(view, "Play with");
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(chooser);
+        } catch (Exception e) {
+            toast("No video player installed. VLC handles these best.");
         }
     }
 
@@ -459,20 +502,45 @@ public class MainActivity extends Activity {
          * MX Player both can.
          */
         @JavascriptInterface
-        public void play(String url, String title) {
+        public String getPlayer() { return prefs.getString(KEY_PLAYER, ""); }
+
+        @JavascriptInterface
+        public void setPlayer(String pkg) {
+            SharedPreferences.Editor e = prefs.edit();
+            if (pkg == null || pkg.isEmpty()) e.remove(KEY_PLAYER);
+            else e.putString(KEY_PLAYER, pkg);
+            e.apply();
+        }
+
+        /** Video players installed on this device, for the Settings picker. */
+        @JavascriptInterface
+        public String players() {
+            JSONArray out = new JSONArray();
             try {
-                Intent view = new Intent(Intent.ACTION_VIEW);
-                view.setDataAndType(Uri.parse(url), "video/*");
-                if (title != null && !title.isEmpty()) {
-                    view.putExtra("title", title);          // VLC and MX read this
-                    view.putExtra("secure_uri", true);
+                Intent probe = new Intent(Intent.ACTION_VIEW);
+                probe.setDataAndType(Uri.parse("file:///x.mkv"), "video/*");
+                PackageManager pm = getPackageManager();
+                for (ResolveInfo ri : pm.queryIntentActivities(probe, 0)) {
+                    if (ri.activityInfo == null) continue;
+                    if (getPackageName().equals(ri.activityInfo.packageName)) continue;
+                    JSONObject o = new JSONObject();
+                    o.put("pkg", ri.activityInfo.packageName);
+                    o.put("name", String.valueOf(ri.loadLabel(pm)));
+                    out.put(o);
                 }
-                Intent chooser = Intent.createChooser(view, "Play with");
-                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(chooser);
-            } catch (Exception e) {
-                toast("No video player installed. VLC or MX Player will do.");
-            }
+            } catch (Exception ignored) {}
+            return out.toString();
+        }
+
+        /**
+         * Opens a video. With a player chosen in Settings it goes straight
+         * there; otherwise Android asks. Sending the intent directly to a
+         * package is what skips the chooser — "always" in the system dialog
+         * cannot be set for us.
+         */
+        @JavascriptInterface
+        public void play(String url, String title) {
+            playWith(Uri.parse(url), title);
         }
 
         /**
@@ -523,12 +591,7 @@ public class MainActivity extends Activity {
                 Uri f = dm.getUriForDownloadedFile(Long.parseLong(id));
                 if (f == null) { toast("That file is no longer on the device"); return; }
 
-                Intent view = new Intent(Intent.ACTION_VIEW);
-                view.setDataAndType(f, "video/*");
-                view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                Intent chooser = Intent.createChooser(view, "Play with");
-                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(chooser);
+                playWith(f, null);
             } catch (Exception e) {
                 toast("Could not open it: " + describe(e));
             }
@@ -562,17 +625,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void downloadNext(String url, String filename, String folder) {
             try {
-                JSONObject job = new JSONObject();
-                job.put("u", url);
-                job.put("n", filename == null ? "" : filename);
-                job.put("f", folder == null ? "" : folder);
-
-                JSONArray old = readQueue();
-                JSONArray q = new JSONArray();
-                q.put(job);
-                for (int i = 0; i < old.length(); i++) q.put(old.get(i));
-                writeQueue(q);
-                pumpQueue();
+                Queue.add(MainActivity.this, url, filename, folder, true);
             } catch (Exception ignored) {}
         }
 
@@ -637,15 +690,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void download(String url, String filename, String folder) {
             try {
-                JSONObject job = new JSONObject();
-                job.put("u", url);
-                job.put("n", filename == null ? "" : filename);
-                job.put("f", folder == null ? "" : folder);
-
-                JSONArray q = readQueue();
-                q.put(job);
-                writeQueue(q);
-                pumpQueue();
+                Queue.add(MainActivity.this, url, filename, folder, false);
             } catch (final Exception e) {
                 final String m = describe(e);
                 runOnUiThread(new Runnable() {
@@ -1310,83 +1355,13 @@ public class MainActivity extends Activity {
     private static final int MAX_ACTIVE = 1;
     private static final String QUEUE_KEY = "dl_queue";
 
-    private JSONArray readQueue() {
-        try { return new JSONArray(prefs.getString(QUEUE_KEY, "[]")); }
-        catch (Exception e) { return new JSONArray(); }
-    }
-    private void writeQueue(JSONArray q) {
-        prefs.edit().putString(QUEUE_KEY, q.toString()).apply();
-    }
+    private JSONArray readQueue() { return Queue.read(this); }
+    private void writeQueue(JSONArray q) { Queue.write(this, q); }
 
     /** Media downloads currently running or waiting inside DownloadManager. */
-    private int activeMedia() {
-        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-        if (dm == null) return 0;
-        Cursor c = null;
-        int n = 0;
-        try {
-            // PAUSED deliberately excluded. A paused download uses no
-            // bandwidth, so letting it hold the only slot deadlocked the
-            // whole queue: one file stuck "waiting to retry" stopped
-            // seventeen others from ever starting, and nothing completing
-            // meant nothing ever pumped the queue either.
-            DownloadManager.Query q = new DownloadManager.Query();
-            q.setFilterByStatus(DownloadManager.STATUS_RUNNING
-                              | DownloadManager.STATUS_PENDING);
-            c = dm.query(q);
-            while (c != null && c.moveToNext()) {
-                String t = str(c, DownloadManager.COLUMN_TITLE);
-                if (t != null && t.startsWith("nyaarank update")) continue;  // priority lane
-                n++;
-            }
-        } catch (Exception ignored) {
-        } finally {
-            if (c != null) try { c.close(); } catch (Exception ignored) {}
-        }
-        return n;
-    }
 
     /** Starts as many queued files as there are free slots. */
-    private synchronized void pumpQueue() {
-        try {
-            JSONArray q = readQueue();
-            if (q.length() == 0) return;
-
-            int free = MAX_ACTIVE - activeMedia();
-            if (free <= 0) return;
-
-            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            if (dm == null) return;
-
-            JSONArray rest = new JSONArray();
-            for (int i = 0; i < q.length(); i++) {
-                JSONObject job = q.optJSONObject(i);
-                if (job == null) continue;
-                if (free <= 0) { rest.put(job); continue; }
-
-                try {
-                    String name = safeName(job.optString("n"));
-                    String dir  = safeFolder(job.optString("f"));
-                    String path = "nyaarank/" + (dir.isEmpty() ? "" : dir + "/") + name;
-
-                    DownloadManager.Request r =
-                            new DownloadManager.Request(Uri.parse(job.getString("u")));
-                    r.setTitle(name);
-                    r.setDescription(dir.isEmpty() ? "nyaarank" : dir);
-                    r.setNotificationVisibility(
-                            DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                    r.setDestinationInExternalPublicDir(
-                            Environment.DIRECTORY_DOWNLOADS, path);
-                    dm.enqueue(r);
-                    free--;
-                } catch (Exception badJob) {
-                    // a job that cannot even be enqueued is dropped, not retried
-                    // forever at the head of the queue
-                }
-            }
-            writeQueue(rest);
-        } catch (Exception ignored) {}
-    }
+    private void pumpQueue() { Queue.pump(this); }
 
     /* Cursor helpers: a missing column throws, and DownloadManager's set
        varies by OEM, so every read is tolerant. */

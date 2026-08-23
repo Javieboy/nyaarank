@@ -782,3 +782,12 @@ footer{
 #scr-search.home .landing{padding:22px 2px 0;text-align:center}
 #scr-search.home .lead{display:none}
 #scr-search.home .chips{justify-content:center}
+.players{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.seg-row{
+  width:100%;text-align:left;padding:11px 13px;min-height:44px;
+  background:var(--panel2);color:var(--muted);border:1px solid var(--line);
+  border-radius:9px;font:inherit;font-size:13.5px;cursor:pointer;
+}
+.seg-row[aria-pressed=true]{
+  background:var(--rose);color:var(--on-accent);border-color:var(--rose);font-weight:650;
+}
