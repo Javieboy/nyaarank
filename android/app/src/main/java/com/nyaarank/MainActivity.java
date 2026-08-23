@@ -266,6 +266,52 @@ public class MainActivity extends Activity {
             }
         }
 
+        /**
+         * Probes each network stage separately so a failure can be attributed
+         * instead of guessed at. Resolves with a plain-text report.
+         */
+        @JavascriptInterface
+        public void diagnose(final String token) {
+            pool.execute(new Runnable() {
+                @Override
+                public void run() {
+                    StringBuilder r = new StringBuilder();
+
+                    r.append("system DNS nyaa.si\n  ");
+                    try {
+                        r.append(InetAddress.getByName("nyaa.si").getHostAddress());
+                    } catch (Exception e) { r.append("FAILED ").append(describe(e)); }
+
+                    String ip = null;
+                    r.append("\n\nDoH resolve via 1.1.1.1\n  ");
+                    try {
+                        DNS_CACHE.remove("nyaa.si");           // force a real lookup
+                        ip = dohResolve("nyaa.si");
+                        r.append(ip);
+                    } catch (Exception e) { r.append("FAILED ").append(describe(e)); }
+
+                    r.append("\n\nhttps://nyaa.si direct\n  ").append(probe("https://nyaa.si/", null));
+
+                    if (ip != null) {
+                        r.append("\n\nhttps://nyaa.si via ").append(ip).append("\n  ")
+                         .append(probe("https://nyaa.si/", ip));
+                    }
+
+                    r.append("\n\nhttps://api.torbox.app direct\n  ")
+                     .append(probe("https://api.torbox.app/", null));
+
+                    try {
+                        JSONObject env = new JSONObject();
+                        env.put("status", 200);
+                        env.put("body", r.toString());
+                        resolve(token, env.toString());
+                    } catch (Exception e) {
+                        resolve(token, "ERROR:" + describe(e));
+                    }
+                }
+            });
+        }
+
         /** {"code":int,"name":string} — what the update check compares against. */
         @JavascriptInterface
         public String appVersion() {
@@ -370,13 +416,23 @@ public class MainActivity extends Activity {
             // resolve over DoH, and reconnect by IP with the real hostname in
             // SNI. Verified against the live hosts: neither is SNI-filtered —
             // only the DNS answer is tampered with.
+            // Report which stage actually broke. Collapsing everything into
+            // the first exception made a TLS-interception failure look
+            // identical to a DNS failure, which is not debuggable from a
+            // screenshot.
             String ip;
             try {
                 ip = dohResolve(url.getHost());
             } catch (Exception dohFail) {
-                throw transportFail;   // report the real failure, not ours
+                throw new IOException("direct: " + describe(transportFail)
+                        + "  ||  DoH lookup: " + describe(dohFail));
             }
-            return attempt(spec, url, ip);
+            try {
+                return attempt(spec, url, ip);
+            } catch (IOException viaIp) {
+                throw new IOException("direct: " + describe(transportFail)
+                        + "  ||  via " + ip + ": " + describe(viaIp));
+            }
         }
     }
 
@@ -502,6 +558,20 @@ public class MainActivity extends Activity {
               .append(URLEncoder.encode(data.getString(k), "UTF-8"));
         }
         return sb.toString();
+    }
+
+    /** One-line result for the diagnostics report. Never throws. */
+    private static String probe(String url, String ip) {
+        try {
+            JSONObject spec = new JSONObject();
+            spec.put("url", url);
+            String res = attempt(spec, new URL(url), ip);
+            int status = new JSONObject(res).optInt("status", 0);
+            // any HTTP status means the transport worked, which is the point
+            return "reachable, HTTP " + status;
+        } catch (Exception e) {
+            return "FAILED " + describe(e);
+        }
     }
 
     // ------------------------------------------------------- DNS over HTTPS

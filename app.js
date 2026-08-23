@@ -837,29 +837,46 @@ async function refreshAccount(){
   renderAccount(TB.me);
 }
 
+/* plan 0 = Free is confirmed from a live response. The rest are inferred
+   from TorBox's published plan tiers and not yet seen in the wild — an
+   unknown number falls back to "plan N" rather than guessing a name. */
+const PLAN_NAMES = {0:"free", 1:"essential", 2:"standard", 3:"pro"};
+
+/* Per-download caps are documented on TorBox's API docs, not returned by
+   the API, so they live here. */
+const PLAN_CAPS = {
+  0: 10737418240,     // 10 GiB
+  1: 214748364800,    // 200 GiB
+  2: 214748364800,    // 200 GiB
+  3: 536870912000     // 500 GiB
+};
+
 function renderAccount(d){
-  const who      = pickField(d, ["email","username","name"], "Signed in");
-  const planRaw  = pickField(d, ["plan","plan_name","subscription_plan"], "");
-  const planLabel = String(planRaw) === "0" ? "free"
-                  : (String(planRaw).toLowerCase() || "unknown");
-  const used     = +pickField(d, ["total_downloaded","monthly_downloaded","bandwidth_used"], 0);
-  const limit    = +pickField(d, ["total_bytes_limit","monthly_limit","bandwidth_limit"], 0);
-  const active   = pickField(d, ["active_downloads","current_active_downloads"], null);
-  const expires  = pickField(d, ["premium_expires_at","expires_at","plan_expires_at"], null);
+  // Field names below are the real ones, read off a live /user/me response.
+  // Note there is NO bandwidth-limit field: TorBox reports lifetime totals
+  // only, so there is no denominator to draw a usage bar against. The number
+  // that actually constrains you is the per-download cap, which comes from
+  // the plan and is documented rather than returned by the API.
+  const who      = pickField(d, ["email","base_email"], "Signed in");
+  const planNum  = +pickField(d, ["plan"], 0);
+  const planLabel = PLAN_NAMES[planNum] || ("plan " + planNum);
+  const cap      = PLAN_CAPS[planNum] || 0;
+  const dlBytes  = +pickField(d, ["total_bytes_downloaded"], 0);
+  const dlCount  = +pickField(d, ["torrents_downloaded"], 0);
+  const since    = pickField(d, ["created_at"], null);
+  const expires  = pickField(d, ["premium_expires_at"], null);
   const cooldown = pickField(d, ["cooldown_until"], null);
 
-  let usageHtml = "";
-  if(limit > 0){
-    const pct = Math.min(100, Math.round(used / limit * 100));
-    const cls = pct >= 95 ? "full" : (pct >= 75 ? "warn" : "");
-    usageHtml =
-      '<div class="acard">' +
-        '<h3>Bandwidth this period</h3>' +
-        '<div class="bar ' + cls + '"><i style="width:' + pct + '%"></i></div>' +
-        '<div class="stat"><span class="k">' + pct + '% used</span>' +
-          '<span class="v">' + esc(fmtBytes(used)) + ' / ' + esc(fmtBytes(limit)) + '</span></div>' +
-      '</div>';
-  }
+  // The per-download cap is the single most consequential number on Free:
+  // it decides which search results can go through TorBox at all.
+  const usageHtml = cap
+    ? '<div class="acard">' +
+        '<h3>Per-download limit</h3>' +
+        '<div class="who" style="margin-bottom:2px">' + esc(fmtBytes(cap)) + '</div>' +
+        '<p class="hint" style="margin:0">Any single torrent larger than this ' +
+          'cannot be added to TorBox on your plan.</p>' +
+      '</div>'
+    : '';
 
   // A date in the past means the opposite of what the label would imply:
   // an expiry that has passed is "premium ended", and a cooldown that has
@@ -871,9 +888,18 @@ function renderAccount(d){
   const day = t => new Date(t).toISOString().slice(0, 10);
   const minute = t => new Date(t).toISOString().slice(0, 16).replace("T", " ") + " UTC";
 
+  const sinceTs = since ? Date.parse(since) : NaN;
+
   const rows =
-    (active !== null
-      ? '<div class="stat"><span class="k">Active downloads</span><span class="v">' + esc(String(active)) + '</span></div>' : '') +
+    (dlBytes > 0
+      ? '<div class="stat"><span class="k">Downloaded all time</span>' +
+        '<span class="v">' + esc(fmtBytes(dlBytes)) + '</span></div>' : '') +
+    (dlCount > 0
+      ? '<div class="stat"><span class="k">Torrents</span>' +
+        '<span class="v">' + esc(String(dlCount)) + '</span></div>' : '') +
+    (isFinite(sinceTs)
+      ? '<div class="stat"><span class="k">Member since</span>' +
+        '<span class="v">' + esc(day(sinceTs)) + '</span></div>' : '') +
     (isFinite(expTs)
       ? '<div class="stat"><span class="k">' + (expTs > now ? "Renews" : "Premium ended") + '</span>' +
         '<span class="v">' + esc(day(expTs)) + '</span></div>' : '') +
@@ -961,6 +987,36 @@ function renderSettings(){
   if(!NATIVE){ slot.innerHTML = ''; return; }
   slot.innerHTML = '<button class="btn-ghost" id="chkUp">Check for updates</button>';
   $("#chkUp").onclick = doUpdateCheck;
+
+  $("#prefs").insertAdjacentHTML("beforeend",
+    '<div class="acard">' +
+      '<h3>Network</h3>' +
+      '<p class="hint" style="margin-top:0">Your ISP blocks nyaa.si and TorBox at ' +
+        'DNS. The app resolves them itself over DoH. If search fails, run this ' +
+        'and send the result.</p>' +
+      '<button class="btn-ghost" id="diagBtn">Run diagnostics</button>' +
+      '<div id="diagOut"></div>' +
+    '</div>');
+  $("#diagBtn").onclick = runDiagnostics;
+}
+
+async function runDiagnostics(){
+  const out = $("#diagOut");
+  out.innerHTML = '<p class="hint"><span class="spin"></span> Probing…</p>';
+  try{
+    const r = await new Promise((resolve, reject) => {
+      const token = "t" + (++TOKEN);
+      const timer = setTimeout(() => {
+        delete PENDING[token];
+        reject(new Error("diagnostics timed out"));
+      }, 90000);
+      PENDING[token] = {resolve, reject, timer};
+      window.Nyaa.diagnose(token);
+    });
+    out.innerHTML = '<pre class="raw">' + esc(r.body) + '</pre>';
+  }catch(e){
+    out.innerHTML = '<p class="err-txt">' + esc(e.message || String(e)) + '</p>';
+  }
 }
 
 async function doUpdateCheck(){
