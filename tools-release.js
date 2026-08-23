@@ -44,10 +44,15 @@ const ANDROID_HOME = process.env.ANDROID_HOME
   || path.join(process.env.USERPROFILE || '', 'Android', 'sdk');
 
 console.log('building…');
-sh(process.platform === 'win32' ? 'cmd' : 'sh',
-   process.platform === 'win32' ? ['/c', 'gradlew.bat', 'assembleDebug', '--no-daemon', '--console=plain']
-                                : ['-c', './gradlew assembleDebug --no-daemon --console=plain'],
-   { cwd: path.join(ROOT, 'android'), env: { ...process.env, JAVA_HOME, ANDROID_HOME } });
+// Invoke the wrapper directly by absolute path. Going through `cmd /c` broke:
+// the child could not resolve gradlew.bat from the inherited environment and
+// failed with no usable stderr.
+const wrapper = path.join(ROOT, 'android',
+  process.platform === 'win32' ? 'gradlew.bat' : 'gradlew');
+sh(wrapper, ['assembleDebug', '--no-daemon', '--console=plain'],
+   { cwd: path.join(ROOT, 'android'),
+     env: { ...process.env, JAVA_HOME, ANDROID_HOME },
+     shell: process.platform === 'win32' });
 
 if (!fs.existsSync(APK)) throw new Error('build produced no APK at ' + APK);
 
