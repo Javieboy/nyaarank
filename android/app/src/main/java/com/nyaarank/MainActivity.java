@@ -98,7 +98,11 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private final ExecutorService pool = Executors.newFixedThreadPool(3);
 
-    private long updateDownloadId = -1;
+    /** Every in-flight update download, not just the newest. A single slot
+     *  meant a second tap orphaned the first download: its completion no
+     *  longer matched, so the installer never fired. */
+    private final Set<Long> updateDownloads =
+            Collections.newSetFromMap(new ConcurrentHashMap<Long, Boolean>());
     private BroadcastReceiver downloadDone;
 
     @Override
@@ -173,8 +177,8 @@ public class MainActivity extends Activity {
             @Override
             public void onReceive(Context ctx, Intent intent) {
                 long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-                if (id == -1 || id != updateDownloadId) return;   // not ours
-                updateDownloadId = -1;
+                if (id == -1 || !updateDownloads.remove(id)) return;   // not ours
+                updateDownloads.clear();   // one install is enough
 
                 DownloadManager dm =
                         (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
@@ -377,6 +381,10 @@ public class MainActivity extends Activity {
          */
         @JavascriptInterface
         public void installUpdate(String url) {
+            if (!updateDownloads.isEmpty()) {
+                toast("Update is already downloading — check the notification shade");
+                return;
+            }
             try {
                 DownloadManager.Request r = new DownloadManager.Request(Uri.parse(url));
                 r.setTitle("nyaarank update");
@@ -388,7 +396,7 @@ public class MainActivity extends Activity {
                 DownloadManager dm =
                         (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
                 if (dm == null) throw new Exception("no download manager");
-                updateDownloadId = dm.enqueue(r);
+                updateDownloads.add(dm.enqueue(r));
             } catch (final Exception e) {
                 toast("Update download failed to start: " + describe(e));
             }
