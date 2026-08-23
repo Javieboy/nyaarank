@@ -102,7 +102,10 @@ public class MainActivity extends Activity {
     /** Generous: nyaa.si is an offshore host and the route from a mobile
      *  carrier here is slow to first byte — measured over 12s on a cold
      *  connection, ~1.3s once warm. 20s was cutting off working requests. */
-    private static final int READ_MS = 45000;
+    private static final int READ_MS = 30000;
+    /** DoH is a small, fast Cloudflare call. Giving it the full budget would
+     *  make the worst case (direct fail + resolve + retry) absurdly long. */
+    private static final int DOH_MS = 8000;
     private static final String PREFS = "nyaarank";
     private static final String KEY_TOKEN = "torbox_token";
 
@@ -863,8 +866,8 @@ public class MainActivity extends Activity {
         HttpURLConnection c = (HttpURLConnection) u.openConnection();
         String body;
         try {
-            c.setConnectTimeout(CONNECT_MS);
-            c.setReadTimeout(READ_MS);
+            c.setConnectTimeout(DOH_MS);
+            c.setReadTimeout(DOH_MS);
             c.setRequestProperty("Accept", "application/dns-json");
             InputStream in = c.getInputStream();
             ByteArrayOutputStream out = new ByteArrayOutputStream();

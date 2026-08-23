@@ -361,7 +361,10 @@ function nativeRequest(spec, timeoutMs){
     const timer = setTimeout(() => {
       delete PENDING[token];
       reject(new Error("native request timed out"));
-    }, timeoutMs || 25000);
+      // Safety net only — Java enforces the real limits. It must sit
+      // ABOVE the worst case there (direct fail + DoH + by-IP retry) or a
+      // request that is still succeeding gets abandoned from this side.
+    }, timeoutMs || 75000);
     PENDING[token] = {resolve, reject, timer};
     try{
       window.Nyaa.request(JSON.stringify(spec), token);
@@ -544,6 +547,20 @@ async function run(){
   const typed = $("#q").value.trim(); if(!typed) return;
   $("#btn").disabled = true; $("#q").blur();
   out.innerHTML = `<div class="status"><span class="spin"></span>Searching nyaa…</div>`;
+
+  // A cold connection to nyaa measured over 12s from a wired line, and this
+  // is a phone on 4G. Without a running count a slow search is
+  // indistinguishable from a frozen one.
+  const t0 = Date.now();
+  const tick = setInterval(() => {
+    const el = out.querySelector(".status");
+    if(!el) return;
+    const secs = Math.round((Date.now() - t0) / 1000);
+    if(secs < 5) return;
+    el.innerHTML = '<span class="spin"></span>Searching nyaa… ' + secs + 's' +
+      (secs >= 20 ? '<br><br>Slow route today. Still waiting — it usually lands.' : '');
+  }, 1000);
+
   try{
     // The season is stripped from what nyaa is asked, because nyaa matches
     // substrings: "season 1" matches the word Season in a Season 4 title,
@@ -594,6 +611,7 @@ async function run(){
            those break constantly. The Android app fetches it directly.`}
       <code>${esc(msg)}</code></div>`;
   }
+  clearInterval(tick);
   $("#btn").disabled = false;
 }
 $("#btn").onclick = run;
