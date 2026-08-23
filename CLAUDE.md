@@ -2,10 +2,10 @@
 
 Search front-end for nyaa.si that ranks anime releases by **encode quality vs.
 storage cost** instead of by upload date, which is all nyaa itself sorts by.
+Ships as an Android app that updates itself.
 
-Origin: planned in a claude.ai chat on a phone. Nothing here has been compiled
-or run against the live nyaa feed — see **Verification status** before trusting
-anything.
+Status: built, installed, running against the live feed. Everything below has
+been executed unless it says otherwise — see **Verification status**.
 
 ---
 
@@ -18,135 +18,256 @@ a 380 GB BD remux that eats the disk, or a 180 MB/ep re-encode that is mush.
 The core insight the whole app is built on: **smaller is not better, there is a
 sweet spot.** Ranking is therefore a band-fit problem, not a sort.
 
+TorBox extends that: ranking tells you what is *best*, not what you can
+actually get. A release can score 95 and have two dead seeders. When TorBox has
+it cached, the swarm stops mattering and the score changes to say so.
+
 ---
 
 ## Files
 
 | File | Role |
 |---|---|
-| `index.html` | The whole app: parser, scorer, UI. Self-contained, no build step. |
-| `.github/workflows/build-apk.yml` | Scaffolds an Android project around `index.html` and builds an APK in CI. |
-| `nyaarank.py` | Desktop version — stdlib-only Python, serves a local web UI on :8420. Also `python3 nyaarank.py "query"` for CLI. |
+| `index.html` | Shell markup: four screens and the tab bar. |
+| `app.css` | All styles. Palette lives in `:root`. |
+| `app.js` | Parser, scorer, TorBox client, UI. |
+| `android/` | WebView host, native HTTP bridge, self-updater. |
+| `tools-release.js` | Bump version, build, commit, push, publish. One command. |
+| `tools-serve.js` | Dev server on :8420. |
 
-`index.html` and `nyaarank.py` are independent ports of the same logic. **If you
-change scoring, change both**, or delete the Python one.
+`app.js` is the single source of truth. Gradle's `syncWebApp` copies the three
+web files into `assets/` at build time and fails the build if one is missing,
+so the packaged copies cannot drift from the ones you edit.
 
 ---
 
 ## Scoring model
 
-Ranking is the sum of five terms, capped to 0–100.
+Ranking is the sum of six terms, capped to 0–100.
 
-**1. Group reputation** (`GROUPS`, ~45 entries, tiers score −35 to +34)
+**1. Group reputation** (`GROUPS`, ~47 entries, tiers score −35 to +34)
 
 | Tier | Meaning | Examples |
 |---|---|---|
-| archival | reference-grade, worth the disk | VCB-Studio, Vodes, sam, Kaleido, LYS1TH3A |
+| archival | reference-grade, worth the disk | VCB-Studio, Vodes, sam, Kaleido |
 | great | very good, sensible sizes | GJM, MTBB, Beatrice-Raws, Reinforce |
 | good | solid safe default | SubsPlease, Erai-raws, ASW |
 | compact | small on purpose, quality fine not amazing | Ember, Judas, Anime Time |
 | avoid | heavy-handed compression | AnimeRG, Pahe, Cleo, PSA |
 
-This list is a snapshot of one person's read of the scene and **will go stale**.
-It is a plain dict on purpose. Editing it is the intended way to tune the app.
+A snapshot of one person's read of the scene; it **will go stale**. It is a
+plain dict on purpose — editing it is the intended way to tune the app. Real
+searches routinely surface good encoders that are not in it (`tlacatlc6`,
+`anime4life.`, `Ironclad`, `DKB`, `ToonsHub`), and they land as `unknown` (+6).
 
 **2. Size fit** (`TARGETS`, 0–30 pts) — the interesting part.
 
 Per `(resolution, codec)`: `[ideal_lo, ideal_hi, tolerable_lo, tolerable_hi]` in
 MB per episode. Full marks inside the ideal band, tapering **logarithmically**
-to zero at the tolerable edges, zero outside. e.g. 1080p HEVC ideal is 250–780
-MB/ep; 1080p AVC is 600–1600.
+to zero at the tolerable edges, zero outside. 1080p HEVC ideal is 250–780 MB/ep;
+1080p AVC is 600–1600.
 
-A "thrift" slider (0–1) shifts the whole band by `1 − (thrift − 0.5) × 0.9`,
-so 1.45× wider for archivists, 0.55× for the storage-constrained. This visibly
-reorders results, which is the point.
+A "thrift" slider (0–1) shifts the band by `1 − (thrift − 0.5) × 0.9`: 1.45×
+wider at the archivist end (`thrift 0`), 0.55× at the storage-constrained end
+(`thrift 1`). Note the direction — it is easy to read backwards.
 
 **3. Seeders** — `min(20, 7·log10(s+1))`, with −25 for a dead torrent.
+**Skipped entirely when TorBox has the torrent cached**, which then scores a
+flat +20. A cached 2-seeder release gains roughly 17 points and can outrank a
+healthy one. This is deliberate and is the whole point of the integration.
 
 **4. Flags** — trusted +8, 10-bit +5, remake −8, remux `−44 × thrift`,
 FLAC −6 when thrifty, dual audio ±12 when requested.
 
 **5. Resolution distance** from the target, penalised in both directions.
 
-Every release also carries up to 3 human-readable reasons for its score. Keep
-this. A score with no explanation is not trustworthy and users will not tune it.
+**6. Plan cap** — not scored, but anything larger than the TorBox per-download
+limit is marked un-sendable in the UI.
+
+Every release carries up to 3 human-readable reasons. Keep this. A score with
+no explanation is not trustworthy, and it matters *more* now that a dead
+torrent can rank highly — without the reason line that looks like a bug.
 
 ---
 
-## Parsing gotchas (both discovered the hard way — do not regress)
+## Parsing gotchas (do not regress)
 
 1. **Underscores break every regex.** Many groups separate tags with `_`
    (`[Ma10p_1080p][x265_flac]`, VCB-Studio and most CN/KR encoders). `_` is a
-   word character, so `\b` never fires against it and every tag silently misses,
-   falling through to defaults. Fix: normalise `_` → space before detection.
-   Group extraction still uses the raw title.
+   word character, so `\b` never fires and every tag silently misses. Fix:
+   normalise `_` → space before detection. Group extraction uses the raw title.
 
-2. **Season packs often carry no episode number at all** — just title and tags.
-   Naive parsing reads a 48 GB pack as one 48 GB episode and buries it. Fix:
-   if no episode marker was found and total size > 8 GB, assume a 12-episode
-   cour and mark the count as a guess (the UI shows `batch ×12?`).
+2. **Season packs often carry no episode number.** Naive parsing reads a 48 GB
+   pack as one 48 GB episode. Fix: if no episode marker was found and total
+   size > 8 GB, assume a 12-episode cour and mark it a guess (`batch ×12?`).
 
-Episode ranges appear as `01-12`, `(01-28)`, `01~28`, `S01E01-E12`. Validate
-`end > start` or `"Show 2 - 01"` parses as a range.
+3. **An explicit episode marker must beat season-pack wording.** Found against
+   the live feed, and it was severe: `[SubsPlease] Sousou no Frieren S2 - 10`
+   matched the season-pack regex on `S2`, and `[EMBER] ... S02E09 ... Season 2`
+   matched the batch regex on the words "Season 2". Both are single episodes.
+   Every weekly release was being divided by 12, reading as an impossibly small
+   encode, and sinking. `R.epExplicit` is checked before the batch branch.
+
+4. **Scene releases put the group last** — `...H 264-VARYG (Sousou no Frieren,
+   Multi-Audio)`. `groupTail` allows trailing parentheticals and requires a
+   leading letter, so `- 10 (1080p)` is not read as a group named "10".
+
+Episode ranges appear as `01-12`, `(01-28)`, `01~28`, `S01E01-E12`.
 
 ---
 
-## Android build
+## The network, which is hostile here
 
-`index.html` runs in a WebView from `assets/`. The APK exists for one reason:
-**nyaa sends no CORS headers**, so a browser cannot fetch it and the web build
-has to bounce through free public relays that break constantly. In the app,
-`MainActivity.Bridge.fetch()` does the HTTP in Java, where CORS does not apply.
+Tested on Biznet home broadband and an Indonesian 4G carrier.
 
-The bridge contract, which must match on both sides:
+- **nyaa.si is DNS-blocked.** Biznet answers with a poisoned A record
+  (`rpz.biznet`, 202.169.44.80); the mobile carrier answers `::1`. Two
+  different shapes, so catching only `UnknownHostException` is not enough.
+- **api.torbox.app was NXDOMAIN on the carrier** at one point, reachable later.
+- **DoH fixes the lookup.** The bridge falls back to `https://1.1.1.1/dns-query`
+  addressed by literal IP — Cloudflare's certificate covers the bare address, so
+  no bootstrap lookup is needed — then reconnects to the real IP with the true
+  hostname in SNI, the Host header, and explicit SAN verification.
+- **But nyaa.si still fails TLS on-device**: `CertPathValidatorException: trust
+  anchor for certification path not found`. nyaa.si chains to **ISRG Root YR**,
+  a newer Let's Encrypt root that this device's CA store does not carry.
+  Not interception — the certificate is legitimate.
+- **Cloudflare WARP (1.1.1.1) makes search work.** Why it resolves the trust
+  problem is not understood; the prediction that it would not was wrong.
+  Unresolved.
 
-- JS calls `window.Nyaa.fetch(url, token)` and returns immediately
-- Java fetches on a worker thread, then calls `window.__nyaaResolve(token, body)`
-- Errors come back as a body starting with `ERROR:`
-- JS sets `NATIVE = !!(window.Nyaa && window.Nyaa.fetch)` and falls back to the
-  proxy chain in a plain browser
+The proper fix, not yet done: bundle ISRG Root YR as an additional trust anchor
+for nyaa.si via a network security config. That adds a public root; it does not
+disable validation.
+
+---
+
+## Android
+
+`index.html` runs in a WebView from `assets/`. The APK exists because **nyaa
+sends no CORS headers** and **TorBox only allows `https://torbox.app` as an
+origin** — a browser build genuinely cannot reach either.
+
+Bridge, in `MainActivity.java`:
+
+```
+Nyaa.request(specJson, token)   {method, url, headers, body:{kind,data}}
+  -> window.__nyaaResolve(token, payload)
+     payload = JSON {status, body} for ANY http reply, 4xx included
+     payload = "ERROR:<msg>" only for transport failure
+```
+
+Non-2xx is data, not failure: TorBox answers **HTTP 400** for "device code not
+used yet" during sign-in. Body kinds: `json`, `form`, `multipart`, `raw` —
+`createtorrent` needs multipart.
+
+Also native: `getKey`/`setKey` (SharedPreferences, not localStorage — app
+private, though not encrypted; `EncryptedSharedPreferences` would pull in
+AndroidX), `openUrl`, `download` (DownloadManager), `appVersion`,
+`installUpdate`, `diagnose`.
+
+**Never log a URL.** `requestdl` carries the API token in the query string.
+`describe()` strips any message containing `://` for this reason.
 
 Async on purpose: `@JavascriptInterface` methods run on the JavaBridge thread,
-so blocking there freezes the page and the spinner stops animating.
+so blocking there freezes the page.
 
-Also native: `shouldOverrideUrlLoading` fires an `ACTION_VIEW` intent so magnet
-links hand off to a torrent app instead of the copy-paste dance.
+Edge to edge: the app draws behind both system bars with them transparent, so
+the gesture pill sits over the app's own background. The layout clears them with
+`env(safe-area-inset-*)`, which only reports real values in this mode.
 
-Stack is deliberately minimal to reduce dependency-resolution risk: plain Java,
-no Kotlin, no AndroidX, zero third-party deps. AGP 8.5.2 / Gradle 8.7 / JDK 17 /
-compileSdk 34 / minSdk 26 (26 avoids needing PNG icon fallbacks). Debug-signed,
-published to GitHub Releases because Actions artifacts arrive as a `.zip`, which
-Android will not install.
+Stack stays minimal: plain Java, no Kotlin, no AndroidX, zero third-party deps.
+AGP 8.5.2 / Gradle 8.7 / JDK 17 / compileSdk 34 / minSdk 26.
+
+**Signing:** debug-signed with this machine's keystore. Android only accepts an
+update signed with the same key, so releases must keep coming from here.
+Building elsewhere means uninstall-then-reinstall.
+
+---
+
+## Self-update
+
+`node tools-release.js` bumps `versionCode`, builds, commits, pushes, and
+publishes to GitHub Releases as tag `v<versionCode>` with the APK attached. The
+app compares its own `versionCode` against that tag, so there is no version
+string to parse.
+
+The repo is public deliberately: private release assets need an Authorization
+header, and the only way to give the app one is to ship a token inside the APK.
+
+---
+
+## TorBox
+
+Base `https://api.torbox.app/v1/api`. Envelope is
+`{success, error, detail, data}`; the docs say `detail` is safe to show users
+verbatim, and it is used that way.
+
+**Sign-in is the device-code flow**, not an API key:
+
+```
+GET  /user/auth/device/start?app=nyaarank
+  -> data {code, device_code, interval, expires_at,
+           verification_url, friendly_verification_url}
+POST /user/auth/device/token  {device_code}
+  -> HTTP 400 + error DEVICE_CODE_NOT_USED while pending
+```
+
+The user must already be signed in to torbox.app in the browser, or the
+approval page's Continue button silently does nothing.
+
+**`/user/me` really returns** (observed): `id`, `plan` (integer, 0 = free),
+`created_at`, `premium_expires_at`, `cooldown_until`, `email`, `base_email`,
+`total_bytes_downloaded`, `total_bytes_uploaded`, `torrents_downloaded`,
+`is_subscribed`, `additional_concurrent_slots`, `long_term_seeding`,
+`long_term_storage`, `user_referral`.
+
+There is **no bandwidth-limit field** — only lifetime totals, so there is no
+denominator for a usage bar. The number that constrains you is the per-download
+cap, which comes from the plan and is documented rather than returned:
+Free 10 GiB, Essential 200 GiB, Standard 200 GiB, Pro 500 GiB.
+
+**The API is partly paid-only.** `PLAN_RESTRICTED_FEATURE` is returned per
+endpoint, not globally: `checkcached` works on a free account, `mylist` does
+not. Track the gate per endpoint — assuming it is global switches off features
+that demonstrably work.
+
+**Rate limits shape the design.** `createtorrent` is 60/hour for uncached items
+but 300/min for cached ones, so always check cached first and never add blind.
+`add_only_if_cached=true` cannot burn the hourly quota.
+
+Response shapes for `checkcached`, `mylist`, `requestdl` and `controltorrent`
+are **not** in the OpenAPI spec — every `responses.200` is empty — and CORS
+prevents testing them from a browser. The parsers accept several plausible
+shapes. Treat them as unverified.
 
 ---
 
 ## Verification status
 
-Verified:
-- Parser and scorer, both ports, against ~11 realistic release names
-- Slider reordering (MTBB dual-audio BD wins at archivist; Ember HEVC at 227
-  MB/ep wins at thrifty)
-- Workflow YAML parses, all 10 heredocs balanced and unindented
-- Generated Java braces balanced, XML well-formed, bridge names match
-- Local server serves and fails gracefully
+Verified by execution:
+- Parser and scorer against **75 live nyaa releases**, not invented names
+- The refactor from one file to three, by diffing scorer output before/after
+- Gradle build, APK contents, manifest, install on device
+- Device-code sign-in end to end, and the real `/user/me`
+- `checkcached` returning hits on a free account, badges and re-ranking
+- Self-update: detect, download, install, and the version comparison
+- DoH + SNI + SAN verification, as a standalone Java program, against the
+  DNS-poisoned host
 
 **Not verified:**
-- **The Gradle build has never run.** Highest-risk item.
-- No request has ever hit the live nyaa RSS feed. The sandbox that wrote this
-  had no network access to nyaa.si and no Android SDK.
-- The CORS proxy chain is unproven and those services die often.
-- Group tiers are one person's opinion, not measured.
+- `mylist`, `createtorrent`, `requestdl`, `controltorrent` — never run against
+  a plan that permits them
+- Whether the cached lookup slows a search perceptibly
+- Anything without WARP: search fails on the trust anchor
 
 ---
 
 ## Start here
 
-1. **Run the Android build locally.** `assembleDebug` with the versions above.
-   This is the one thing most likely to be broken and cannot be checked in CI
-   without burning minutes on each guess.
-2. **Hit the real feed** — `python3 nyaarank.py "frieren"` is the fastest path,
-   no CORS involved. Check the parser against actual titles; the test set was
-   invented and real nyaa titles are messier.
-3. Then consider: caching, an AniList lookup to resolve title aliases (nyaa
-   indexes whatever uploaders typed, so "Sousou no Frieren" and "Frieren" return
-   different sets), and per-show overrides for the group list.
+1. **Bundle ISRG Root YR** so search works without WARP.
+2. **Once on a paid TorBox plan**, exercise Transfers end to end and correct
+   the guessed response shapes.
+3. Consider: `/stream/createstream` for playback instead of downloading,
+   caching search results, an AniList lookup for title aliases (nyaa indexes
+   whatever uploaders typed), and per-show group overrides.
