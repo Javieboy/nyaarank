@@ -1,13 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Three bars, the middle one highlighted: not the smallest, not the biggest,
+  the one in the sweet spot. That is the entire premise of the app.
+
+  Adaptive icons crop to roughly the centre 66 of 108, so everything stays
+  well inside that. Colours are the app's own rose and gold.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- small -->
     <path
-        android:fillColor="#7AA2F7"
-        android:pathData="M34,68 L34,40 L42,40 L58,60 L58,40 L66,40 L66,68 L58,68 L42,48 L42,68 Z" />
+        android:fillColor="#E85D9E"
+        android:pathData="M35,60 h11 a2,2 0 0 1 2,2 v14 a2,2 0 0 1 -2,2 h-11 a2,2 0 0 1 -2,-2 v-14 a2,2 0 0 1 2,-2 z" />
+
+    <!-- the sweet spot -->
     <path
-        android:fillColor="#7AA2F7"
-        android:pathData="M70,40 L78,40 L78,62 L74,68 L70,62 Z" />
+        android:fillColor="#F2B441"
+        android:pathData="M51,44 h11 a2,2 0 0 1 2,2 v30 a2,2 0 0 1 -2,2 h-11 a2,2 0 0 1 -2,-2 v-30 a2,2 0 0 1 2,-2 z" />
+
+    <!-- oversized -->
+    <path
+        android:fillColor="#E85D9E"
+        android:pathData="M67,30 h11 a2,2 0 0 1 2,2 v44 a2,2 0 0 1 -2,2 h-11 a2,2 0 0 1 -2,-2 v-44 a2,2 0 0 1 2,-2 z" />
+
+    <!-- baseline -->
+    <path
+        android:fillColor="#2C2F3E"
+        android:pathData="M31,80 h51 a1.5,1.5 0 0 1 0,3 h-51 a1.5,1.5 0 0 1 0,-3 z" />
 </vector>
