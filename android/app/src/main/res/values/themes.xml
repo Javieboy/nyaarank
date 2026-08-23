@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Edge to edge. The app draws behind the status and navigation bars and
+      both are transparent, so the gesture pill floats over the app's own
+      background instead of sitting on a separate strip. The layout keeps
+      clear of them using env(safe-area-inset-*) in app.css.
+    -->
+    <style name="Nyaarank" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ground</item>
+        <item name="android:colorBackground">@color/ground</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

@@ -654,7 +654,7 @@ const TB = {
   BASE: "https://api.torbox.app/v1/api",
   token: "",
   me: null,
-  apiLocked: false,   // paid-plan gate hit at least once
+  locked: {},   // endpoint prefix -> true when the paid gate answered
 
   loadToken(){
     try{
@@ -688,7 +688,10 @@ const TB = {
     // TorBox gates its whole torrent API behind a paid plan. Auth and
     // /user/me work on Free, everything else answers with this. Remember it
     // so the UI stops offering features that cannot work.
-    if(env && env.error === "PLAN_RESTRICTED_FEATURE") TB.apiLocked = true;
+    // Free accounts may use some endpoints (checkcached) but not others
+    // (mylist). Record the gate per endpoint so one refusal does not switch
+    // off features that demonstrably work.
+    if(env && env.error === "PLAN_RESTRICTED_FEATURE") TB.locked[path.split("?")[0]] = true;
     return {status: r.status, env: env};
   }
 };
@@ -1124,9 +1127,9 @@ function planCap(){
  * Failures are non-fatal: without TorBox the app still ranks normally.
  */
 async function markCached(items){
-  if(!NATIVE || !TB.signedIn() || TB.apiLocked) return false;
+  if(!NATIVE || !TB.signedIn() || TB.locked["/torrents/checkcached"]) return false;
 
-  const wasLocked = TB.apiLocked;
+  const wasLocked = !!TB.locked["/torrents/checkcached"];
   const need = [];
   for(const it of items){
     const h = it.hash;
@@ -1159,15 +1162,15 @@ async function markCached(items){
 
     for(const h of need) CACHE_SEEN[h] = !!hits[String(h).toLowerCase()];
     for(const it of items) if(it.hash) it.cached = !!CACHE_SEEN[it.hash];
-    return Object.keys(hits).length > 0 || (TB.apiLocked && !wasLocked);
+    return Object.keys(hits).length > 0 || (!!TB.locked["/torrents/checkcached"] && !wasLocked);
   }catch(e){
-    return TB.apiLocked && !wasLocked;
+    return !!TB.locked["/torrents/checkcached"] && !wasLocked;
   }
 }
 
 /** The Send-to-TorBox row under a result, or "" when it does not apply. */
 function tbAction(it, i){
-  if(!NATIVE || !TB.signedIn() || TB.apiLocked) return "";
+  if(!NATIVE || !TB.signedIn() || TB.locked["/torrents/createtorrent"]) return "";
 
   const cap = planCap();
   const over = cap && it.sizeMB * 1048576 > cap;
@@ -1252,7 +1255,7 @@ function renderApiLocked(el){
 }
 
 async function refreshTransfers(){
-  if(TB.apiLocked){ renderApiLocked($("#xfers")); return; }
+  if(TB.locked["/torrents/mylist"]){ renderApiLocked($("#xfers")); return; }
   if(!NATIVE || !TB.signedIn()){
     $("#xfers").innerHTML =
       '<div class="status">Sign in to TorBox on the Account tab to send ' +
@@ -1268,7 +1271,7 @@ async function refreshTransfers(){
     if(!r.env.success) throw new Error(r.env.detail || r.env.error || "failed");
     list = Array.isArray(r.env.data) ? r.env.data : (r.env.data ? [r.env.data] : []);
   }catch(e){
-    if(TB.apiLocked){ renderApiLocked($("#xfers")); return; }
+    if(TB.locked["/torrents/mylist"]){ renderApiLocked($("#xfers")); return; }
     $("#xfers").innerHTML = '<div class="status err"><b>Couldn\'t load transfers</b>' +
       '<code>' + esc(e.message || String(e)) + '</code></div>';
     return;

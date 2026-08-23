@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- keep in step with the ground / panel custom properties in app.css -->
+    <color name="ground">#12131A</color>
+    <color name="panel">#1A1C26</color>
+</resources>

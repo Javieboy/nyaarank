@@ -3,6 +3,7 @@
   --ink:#dadce8; --muted:#7a7f98;
   --gold:#f2b441; --rose:#e85d9e; --red:#e0575c; --teal:#4fd2c2;
   --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--ground);color:var(--ink);overscroll-behavior-y:none}
@@ -27,6 +28,8 @@ body{
 header{
   position:sticky;top:0;z-index:20;background:var(--ground);
   padding:14px 0 10px;margin:0 -13px;padding-left:13px;padding-right:13px;
+  /* the app draws behind the status bar now, so clear it */
+  padding-top:calc(14px + var(--safe-t));
   border-bottom:1px solid var(--line);
 }
 .brand{
