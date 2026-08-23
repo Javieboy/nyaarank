@@ -37,7 +37,10 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
 import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.util.Collection;
 import java.util.Collections;
@@ -57,7 +60,11 @@ import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
 
 /**
  * Hosts the web app from assets/ in a WebView.
@@ -110,6 +117,7 @@ public class MainActivity extends Activity {
         super.onCreate(state);
 
         prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        initExtraTrust(getApplicationContext());
         goEdgeToEdge();
 
         web = new WebView(this);
@@ -321,6 +329,8 @@ public class MainActivity extends Activity {
                 @Override
                 public void run() {
                     StringBuilder r = new StringBuilder();
+
+                    r.append("extra trust anchors\n  ").append(TRUST_STATUS).append("\n\n");
 
                     r.append("system DNS nyaa.si\n  ");
                     try {
@@ -736,8 +746,10 @@ public class MainActivity extends Activity {
 
         if (c instanceof HttpsURLConnection) {
             HttpsURLConnection s = (HttpsURLConnection) c;
-            s.setSSLSocketFactory(new SniSocketFactory(
-                    (SSLSocketFactory) SSLSocketFactory.getDefault(), host));
+            SSLSocketFactory base = (EXTRA_TRUST != null)
+                    ? EXTRA_TRUST
+                    : (SSLSocketFactory) SSLSocketFactory.getDefault();
+            s.setSSLSocketFactory(new SniSocketFactory(base, host));
             // Verify the certificate against the real hostname, never the IP.
             //
             // Deliberately NOT delegating to getDefaultHostnameVerifier(): on
@@ -792,6 +804,97 @@ public class MainActivity extends Activity {
             // any failure to inspect the chain means "not verified"
         }
         return false;
+    }
+
+    /**
+     * System trust anchors plus the two ISRG roots bundled in res/raw.
+     *
+     * The network security config alone was not enough: openByIp builds its
+     * own SSL socket from SSLSocketFactory.getDefault(), which is the raw
+     * platform factory and never sees that config. So the anchors are wired
+     * in here explicitly.
+     *
+     * System anchors are tried FIRST and the bundled roots only as a fallback,
+     * so this widens what validates without changing how anything already
+     * working is judged.
+     */
+    private static volatile SSLSocketFactory EXTRA_TRUST;
+    private static volatile String TRUST_STATUS = "not initialised";
+
+    private static void initExtraTrust(Context ctx) {
+        if (EXTRA_TRUST != null) return;
+        try {
+            CertificateFactory cf = CertificateFactory.getInstance("X.509");
+            KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
+            ks.load(null, null);
+
+            int added = 0;
+            int[] raws = { R.raw.isrg_root_yr, R.raw.isrg_root_x1 };
+            for (int rid : raws) {
+                InputStream in = ctx.getResources().openRawResource(rid);
+                try {
+                    for (Certificate c : cf.generateCertificates(in)) {
+                        ks.setCertificateEntry("extra" + added, c);
+                        added++;
+                    }
+                } finally {
+                    in.close();
+                }
+            }
+
+            String alg = TrustManagerFactory.getDefaultAlgorithm();
+            TrustManagerFactory extraF = TrustManagerFactory.getInstance(alg);
+            extraF.init(ks);
+            TrustManagerFactory sysF = TrustManagerFactory.getInstance(alg);
+            sysF.init((KeyStore) null);
+
+            final X509TrustManager extra = firstX509(extraF);
+            final X509TrustManager system = firstX509(sysF);
+            if (extra == null || system == null) {
+                TRUST_STATUS = "no X509 trust manager";
+                return;
+            }
+
+            X509TrustManager both = new X509TrustManager() {
+                @Override
+                public void checkServerTrusted(X509Certificate[] chain, String authType)
+                        throws CertificateException {
+                    try {
+                        system.checkServerTrusted(chain, authType);
+                    } catch (CertificateException notInSystemStore) {
+                        extra.checkServerTrusted(chain, authType);
+                    }
+                }
+                @Override
+                public void checkClientTrusted(X509Certificate[] chain, String authType)
+                        throws CertificateException {
+                    system.checkClientTrusted(chain, authType);
+                }
+                @Override
+                public X509Certificate[] getAcceptedIssuers() {
+                    X509Certificate[] a = system.getAcceptedIssuers();
+                    X509Certificate[] b = extra.getAcceptedIssuers();
+                    X509Certificate[] all = new X509Certificate[a.length + b.length];
+                    System.arraycopy(a, 0, all, 0, a.length);
+                    System.arraycopy(b, 0, all, a.length, b.length);
+                    return all;
+                }
+            };
+
+            SSLContext sc = SSLContext.getInstance("TLS");
+            sc.init(null, new TrustManager[] { both }, null);
+            EXTRA_TRUST = sc.getSocketFactory();
+            TRUST_STATUS = "ok, " + added + " extra roots";
+        } catch (Exception e) {
+            TRUST_STATUS = "failed: " + describe(e);
+        }
+    }
+
+    private static X509TrustManager firstX509(TrustManagerFactory f) {
+        for (TrustManager tm : f.getTrustManagers()) {
+            if (tm instanceof X509TrustManager) return (X509TrustManager) tm;
+        }
+        return null;
     }
 
     /** Delegating factory that stamps the real hostname into the TLS SNI extension. */
