@@ -1520,8 +1520,7 @@ $("#xfers").addEventListener("click", async e => {
     const was = dl.textContent;
     dl.textContent = "Getting link…";
     try{
-      window.Nyaa.download(dlUrl(dl.dataset.tid, dl.dataset.fid),
-                           dl.dataset.name || "", dl.dataset.folder || "");
+      saveFile(dl.dataset.tid, dl.dataset.fid, dl.dataset.name, dl.dataset.folder);
       dl.textContent = "Downloading…";
       setTimeout(() => { dl.disabled = false; dl.textContent = was; }, 6000);
     }catch(err){
@@ -2040,8 +2039,7 @@ function saveAll(btn){
   btn.textContent = "Queued " + fresh.length;
   for(const r of fresh){
     try{
-      window.Nyaa.download(dlUrl(r.dataset.tid, r.dataset.fid),
-                           r.dataset.name || "", r.dataset.folder || "");
+      saveFile(r.dataset.tid, r.dataset.fid, r.dataset.name, r.dataset.folder);
     }catch(e){}
   }
   $("#ddot").hidden = false;
@@ -2105,7 +2103,7 @@ function renderDownloads(){
     const pct = totalBytes > 0 ? Math.round(doneBytes / totalBytes * 100) : 0;
 
     const state = busy.length ? busy.length + " downloading"
-                : failed && !saved ? "failed"
+                : failed && !saved ? failed + " failed"
                 : failed ? saved + " saved · " + failed + " failed"
                 : saved + (saved === 1 ? " episode" : " episodes");
 
@@ -2132,7 +2130,7 @@ function renderDownloads(){
           '<div class="flabel">' + esc(label) + '</div>' +
           '<div class="fsize' + (bad ? " v-bad" : "") + '">' +
             (ok ? fmtBytes(d.done)
-               : bad ? "failed" + (d.reason ? " · code " + d.reason : "")
+               : bad ? dlReason(d.reason)
                : running ? fpct + "%  ·  " + fmtBytes(d.done) +
                            (d.total > 0 ? " of " + fmtBytes(d.total) : "")
                : esc(DL_LABEL[d.status] || "")) +
@@ -2140,6 +2138,7 @@ function renderDownloads(){
           (running ? '<div class="bar mini"><i style="width:' + fpct + '%"></i></div>' : '') +
         '</div>' +
         (ok ? '<button class="btn xplay" data-open="' + esc(String(d.id)) + '">Play</button>' : '') +
+        (bad ? '<button class="btn xretry1" data-retry="' + esc(String(d.id)) + '">Retry</button>' : '') +
         '<button class="btn xdl ddel" data-dl="' + esc(String(d.id)) + '"' +
           ' data-running="' + (running ? "1" : "0") + '" data-label="' + esc(label) + '">' +
           (running ? "✕" : "🗑") + '</button>' +
@@ -2163,6 +2162,9 @@ function renderDownloads(){
       '<details class="xfiles"><summary>' + items.length +
         (items.length === 1 ? " file" : " files") + '</summary>' + rows + '</details>' +
       '<div class="xacts">' +
+        (failed ? '<button class="btn xall" data-retryall="' +
+          esc(items.filter(d => d.status === DL_FAIL).map(d => d.id).join(",")) +
+          '">Retry ' + failed + ' failed</button>' : '') +
         '<button class="btn xdel" data-delall="' +
           esc(items.map(d => d.id).join(",")) + '" data-show="' + esc(k) + '">' +
           'Delete all ' + items.length + '</button>' +
@@ -2199,6 +2201,30 @@ $("#dloads").addEventListener("click", async e => {
     for(const id of ids){
       try{ window.Nyaa.cancelDownload(id); }catch(err){}
     }
+    renderDownloads();
+    return;
+  }
+
+  const one = e.target.closest("[data-retry]");
+  if(one){
+    const d = localDownloads().filter(x => String(x.id) === one.dataset.retry)[0];
+    if(!d || !retryOne(d))
+      alertLine("Can't retry that one — save it again from the TorBox tab");
+    renderDownloads();
+    return;
+  }
+
+  const many = e.target.closest("[data-retryall]");
+  if(many){
+    const ids = String(many.dataset.retryall).split(",").filter(Boolean);
+    const all = localDownloads();
+    let done = 0;
+    for(const id of ids){
+      const d = all.filter(x => String(x.id) === id)[0];
+      if(d && retryOne(d)) done++;
+    }
+    alertLine(done ? "Retrying " + done + (done === 1 ? " file" : " files")
+                   : "Can't retry these — save them again from the TorBox tab");
     renderDownloads();
     return;
   }
@@ -2270,4 +2296,68 @@ function confirmDialog(o){
     $("#cfmYes").onclick = () => finish(true);
     $("#cfmNo").onclick  = () => finish(false);
   });
+}
+
+/* ====================================================================
+   RETRY
+
+   DownloadManager keeps no memory of what a download was for, so a
+   failed file cannot be re-requested from its row alone. Every enqueue
+   records which torrent and file it came from, keyed by the sanitised
+   name DownloadManager actually stores, so a retry can build a fresh
+   link — fresh matters, because the token may have changed since.
+   ==================================================================== */
+
+const DLMAP_KEY = "nyaarank.dlmap";
+
+function dlMap(){
+  try{ return JSON.parse(localStorage.getItem(DLMAP_KEY) || "{}"); }
+  catch(e){ return {}; }
+}
+function dlMapPut(name, folder, tid, fid){
+  try{
+    const m = dlMap();
+    m[dmName(name) + "|" + dmFolder(folder)] = {t: String(tid), f: String(fid)};
+    localStorage.setItem(DLMAP_KEY, JSON.stringify(m));
+  }catch(e){}
+}
+function dlMapGet(title, folder){
+  return dlMap()[String(title || "") + "|" + String(folder || "")] || null;
+}
+
+/** Enqueue, and remember what it was, so it can be retried later. */
+function saveFile(tid, fid, name, folder){
+  dlMapPut(name, folder, tid, fid);
+  window.Nyaa.download(dlUrl(tid, fid), name || "", folder || "");
+}
+
+/** True if the retry was actually started. */
+function retryOne(d){
+  const rec = dlMapGet(d.title, d.folder);
+  if(!rec) return false;
+  try{ window.Nyaa.cancelDownload(String(d.id)); }catch(e){}   // clear the failed row
+  try{ saveFile(rec.t, rec.f, d.title, d.folder); }catch(e){ return false; }
+  return true;
+}
+
+/**
+ * DownloadManager reports an HTTP status directly when the server refused,
+ * and its own constants otherwise. "code 502" tells you nothing; "server
+ * error 502" at least says whose fault it was.
+ */
+function dlReason(code){
+  const own = {
+    1001: "storage error",
+    1002: "unexpected server response",
+    1004: "network error",
+    1005: "too many redirects",
+    1006: "not enough space",
+    1007: "no storage found",
+    1008: "could not resume",
+    1009: "file already exists"
+  };
+  if(own[code]) return own[code];
+  if(code >= 500 && code < 600) return "server error " + code;
+  if(code >= 400 && code < 500) return "rejected " + code;
+  return code ? "error " + code : "failed";
 }

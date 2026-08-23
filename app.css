@@ -439,3 +439,9 @@ footer{
 }
 .btn-big.danger{background:var(--red);color:#12131a}
 .btn.xdel[data-delall]{color:var(--red);border-color:#4d2a2c}
+.btn.xretry1{
+  flex:0 0 auto;min-height:36px;padding:0 12px;border-radius:8px;
+  background:var(--panel2);color:var(--gold);border:1px solid #463c22;
+  font-size:12px;font-weight:650;font-family:inherit;
+}
+.btn.xall[data-retryall]{color:var(--gold);border-color:#463c22}
