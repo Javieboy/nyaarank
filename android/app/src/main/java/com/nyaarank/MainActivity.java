@@ -32,6 +32,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URL;
 import java.net.URLEncoder;
@@ -349,6 +350,13 @@ public class MainActivity extends Activity {
                         r.append(ip);
                     } catch (Exception e) { r.append("FAILED ").append(describe(e)); }
 
+                    if (ip != null) {
+                        r.append("\n\nTLS handshake, platform trust\n  ")
+                         .append(tlsProbe(ip, false));
+                        r.append("\n\nTLS handshake, bundled roots\n  ")
+                         .append(tlsProbe(ip, true));
+                    }
+
                     r.append("\n\nhttps://nyaa.si direct\n  ").append(probe("https://nyaa.si/", null));
 
                     if (ip != null) {
@@ -662,6 +670,45 @@ public class MainActivity extends Activity {
               .append(URLEncoder.encode(data.getString(k), "UTF-8"));
         }
         return sb.toString();
+    }
+
+    /**
+     * Handshake only, so a trust failure cannot be confused with a slow or
+     * stalled HTTP response. Run once with the platform's own trust and once
+     * with the bundled roots, which is the only way to tell "the anchors are
+     * not being used" from "the anchors are used and still rejected".
+     */
+    private static String tlsProbe(String ip, boolean useExtra) {
+        SSLSocketFactory f = useExtra
+                ? EXTRA_TRUST
+                : (SSLSocketFactory) SSLSocketFactory.getDefault();
+        if (f == null) return "EXTRA_TRUST is null — anchors never loaded";
+
+        SSLSocket sock = null;
+        try {
+            sock = (SSLSocket) f.createSocket();
+            sock.connect(new InetSocketAddress(ip, 443), CONNECT_MS);
+            sock.setSoTimeout(READ_MS);
+
+            SSLParameters p = sock.getSSLParameters();
+            p.setServerNames(Collections.<SNIServerName>singletonList(new SNIHostName("nyaa.si")));
+            sock.setSSLParameters(p);
+
+            sock.startHandshake();
+            Certificate[] chain = sock.getSession().getPeerCertificates();
+            StringBuilder sb = new StringBuilder("handshake OK, " + chain.length + " certs");
+            for (Certificate c : chain) {
+                if (c instanceof X509Certificate) {
+                    sb.append("\n    ").append(((X509Certificate) c).getSubjectX500Principal().getName()
+                            .replaceAll(".*CN=([^,]*).*", "$1"));
+                }
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "FAILED " + describe(e);
+        } finally {
+            if (sock != null) try { sock.close(); } catch (Exception ignored) {}
+        }
     }
 
     /** One-line result for the diagnostics report. Never throws. */
