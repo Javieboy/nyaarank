@@ -128,17 +128,29 @@ Tested on Biznet home broadband and an Indonesian 4G carrier.
   addressed by literal IP — Cloudflare's certificate covers the bare address, so
   no bootstrap lookup is needed — then reconnects to the real IP with the true
   hostname in SNI, the Host header, and explicit SAN verification.
-- **But nyaa.si still fails TLS on-device**: `CertPathValidatorException: trust
-  anchor for certification path not found`. nyaa.si chains to **ISRG Root YR**,
-  a newer Let's Encrypt root that this device's CA store does not carry.
-  Not interception — the certificate is legitimate.
-- **Cloudflare WARP (1.1.1.1) makes search work.** Why it resolves the trust
-  problem is not understood; the prediction that it would not was wrong.
-  Unresolved.
+- **The by-IP request must not go through HttpsURLConnection.** This looked for
+  a long time like a certificate problem: connecting to `https://<ip>/` failed
+  with `CertPathValidatorException: trust anchor for certification path not
+  found`, and nyaa.si does chain through ISRG Root YR, a 2025 Let's Encrypt
+  root. Bundling that root changed nothing.
 
-The proper fix, not yet done: bundle ISRG Root YR as an additional trust anchor
-for nyaa.si via a network security config. That adds a public root; it does not
-disable validation.
+  A handshake-only probe settled it: **a raw TLS handshake to the same IP
+  succeeds on the platform's own trust**, no bundled roots involved. The device
+  trusts the chain. What fails is HttpsURLConnection validating the certificate
+  against the URL's host, which for a by-IP request is a literal address — it
+  rejects the chain and misreports it as a missing anchor.
+
+  So `httpOverTls()` speaks HTTP/1.1 over the SSLSocket directly for the by-IP
+  path. `Connection: close` makes the body readable to EOF, so no chunked
+  decoding, and no `Accept-Encoding` is sent so nothing arrives compressed.
+
+  Search now works with no VPN.
+
+The two ISRG roots in `res/raw` are kept for a device that genuinely lacks them,
+but they were not the fix. The lesson worth keeping: the error message named a
+cause that was not the cause, and three rounds of plausible reasoning went the
+wrong way. One probe that separated "handshake" from "HTTP request" answered it
+immediately.
 
 ---
 
@@ -256,18 +268,20 @@ Verified by execution:
   DNS-poisoned host
 
 **Not verified:**
-- `mylist`, `createtorrent`, `requestdl`, `controltorrent` — never run against
-  a plan that permits them
+- `requestdl` and `controltorrent` beyond a single successful call each
 - Whether the cached lookup slows a search perceptibly
-- Anything without WARP: search fails on the trust anchor
+- `/stream/createstream` — gated above the Essential plan
 
 ---
 
 ## Start here
 
-1. **Bundle ISRG Root YR** so search works without WARP.
-2. **Once on a paid TorBox plan**, exercise Transfers end to end and correct
-   the guessed response shapes.
+1. **Use it.** Every worthwhile fix so far came from real searches, not from
+   planning: the S2-10 parser bug, episodes sorting by size, unreadable file
+   names, the dead Send button. None were predicted.
+2. **Add the encoders that keep coming back `unknown`** — tlacatlc6,
+   anime4life., Ironclad, DKB, ToonsHub, Anipakku, Salieri, kikuri, neoDESU.
+   `GROUPS` is the biggest single lever on ranking quality.
 3. Consider: `/stream/createstream` for playback instead of downloading,
    caching search results, an AniList lookup for title aliases (nyaa indexes
    whatever uploaders typed), and per-show group overrides.
