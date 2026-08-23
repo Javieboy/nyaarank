@@ -425,18 +425,25 @@ public class MainActivity extends Activity {
             }
         }
 
+        /**
+         * Saves a file into Downloads/nyaarank/&lt;release&gt;/, rather than
+         * dropping every episode of every show loose in Downloads.
+         */
         @JavascriptInterface
-        public void download(String url, String filename) {
+        public void download(String url, String filename, String folder) {
             try {
                 String name = safeName(filename);
+                String dir = safeFolder(folder);
+                String path = "nyaarank/" + (dir.isEmpty() ? "" : dir + "/") + name;
+
                 DownloadManager.Request r =
                         new DownloadManager.Request(Uri.parse(url));
                 r.setTitle(name);
-                r.setDescription("nyaarank");
+                r.setDescription(dir.isEmpty() ? "nyaarank" : dir);
                 r.setNotificationVisibility(
                         DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
                 r.setDestinationInExternalPublicDir(
-                        Environment.DIRECTORY_DOWNLOADS, name);
+                        Environment.DIRECTORY_DOWNLOADS, path);
                 DownloadManager dm =
                         (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
                 if (dm != null) dm.enqueue(r);
@@ -825,6 +832,20 @@ public class MainActivity extends Activity {
         if (m.contains("://")) return e.getClass().getSimpleName();
         if (m.length() > 150) m = m.substring(0, 150) + "…";
         return m;
+    }
+
+    /**
+     * Folder segment. Unlike safeName this returns "" for nothing usable,
+     * so an unnamed release lands directly in Downloads/nyaarank rather than
+     * in a directory named after the fallback.
+     */
+    private static String safeFolder(String name) {
+        if (name == null) return "";
+        String s = name.replaceAll("[\\\\/:*?\"<>|\\r\\n]", "_")
+                       .replaceAll("^[.\\s]+", "")   // no leading dots: hidden dirs
+                       .trim();
+        if (s.length() > 90) s = s.substring(0, 90).trim();
+        return s;
     }
 
     private static String safeName(String name) {

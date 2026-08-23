@@ -1349,22 +1349,7 @@ async function refreshTransfers(){
       return av - bv || (b.size || 0) - (a.size || 0);
     });
 
-    const fileBtns = done && files.length
-      ? '<div class="xfiles">' + files.slice(0, 12).map(f => {
-          const fid = pickField(f, ["id"], "");
-          const fn  = String(pickField(f, ["short_name","name"], "file")).split("/").pop();
-          const isVid = /^video\//.test(String(f.mimetype || ""));
-          const attrs = 'data-tid="' + esc(String(id)) + '" data-fid="' + esc(String(fid)) +
-                        '" data-name="' + esc(fn) + '"';
-          if(!isVid)
-            return '<button class="btn xdl" ' + attrs + '>' + esc(fn) + '</button>';
-          // Play hands off to VLC/MX; Save goes through DownloadManager.
-          return '<div class="xfile">' +
-            '<button class="btn xdl vid" ' + attrs + '>' + esc(fn) + '</button>' +
-            '<button class="btn xplay" ' + attrs + '>Play</button>' +
-          '</div>';
-        }).join("") + '</div>'
-      : '';
+    const fileBtns = done && files.length ? filesBlock(id, name, files) : '';
 
     const sub = expired ? "expired — TorBox no longer holds these files"
               : done    ? (files.length + " file" + (files.length === 1 ? "" : "s"))
@@ -1434,7 +1419,8 @@ $("#xfers").addEventListener("click", async e => {
     const was = dl.textContent;
     dl.textContent = "Getting link…";
     try{
-      window.Nyaa.download(dlUrl(dl.dataset.tid, dl.dataset.fid), dl.dataset.name || was);
+      window.Nyaa.download(dlUrl(dl.dataset.tid, dl.dataset.fid),
+                           dl.dataset.name || "", dl.dataset.folder || "");
       dl.textContent = "Downloading…";
       setTimeout(() => { dl.disabled = false; dl.textContent = was; }, 6000);
     }catch(err){
@@ -1526,4 +1512,94 @@ async function probeTorBox(){
   }
 
   out.innerHTML = '<pre class="raw">' + esc(lines.join("\n\n")) + '</pre>';
+}
+
+/* ====================================================================
+   FILE LIST
+
+   Every filename in a torrent repeats the same long prefix — the release
+   name, the group, the resolution — so a flat list is fifteen rows of
+   identical text with the one distinguishing part cut off the end. Strip
+   the shared prefix and suffix and what is left is the episode number,
+   which is the only thing you were reading anyway.
+   ==================================================================== */
+
+/** Longest leading run shared by every string, trimmed to a word boundary. */
+function sharedPrefix(names){
+  if(names.length < 2) return "";
+  let p = names[0];
+  for(const n of names){
+    let i = 0;
+    while(i < p.length && i < n.length && p[i] === n[i]) i++;
+    p = p.slice(0, i);
+    if(!p) return "";
+  }
+  // do not cut mid-word: back up to the last separator
+  const cut = Math.max(p.lastIndexOf(" "), p.lastIndexOf("-"),
+                       p.lastIndexOf("_"), p.lastIndexOf("."));
+  return cut > 0 ? p.slice(0, cut + 1) : "";
+}
+
+/** Same idea from the right, so a trailing "[1080p BD FLAC].mkv" goes too. */
+function sharedSuffix(names){
+  if(names.length < 2) return "";
+  let s = names[0];
+  for(const n of names){
+    let i = 0;
+    while(i < s.length && i < n.length && s[s.length-1-i] === n[n.length-1-i]) i++;
+    s = s.slice(s.length - i);
+    if(!s) return "";
+  }
+  const cut = Math.min(...[" ", "-", "_", "[", "("].map(c => {
+    const k = s.indexOf(c);
+    return k < 0 ? Infinity : k;
+  }));
+  return isFinite(cut) ? s.slice(cut) : "";
+}
+
+function filesBlock(tid, torrentName, files){
+  const raw = files.map(f => String(pickField(f, ["short_name","name"], "file")).split("/").pop());
+  const pre = sharedPrefix(raw);
+  const suf = sharedSuffix(raw);
+
+  const rows = files.map((f, i) => {
+    const fid   = pickField(f, ["id"], "");
+    const full  = raw[i];
+    let label   = full;
+    if(pre && label.startsWith(pre)) label = label.slice(pre.length);
+    if(suf && label.endsWith(suf) && label.length > suf.length) label = label.slice(0, -suf.length);
+
+    // Per-file CRCs differ, so they survive the shared-suffix pass. Drop the
+    // extension and any trailing bracketed metadata — the full name is still
+    // on the element, and the episode number is what you are scanning for.
+    label = label.replace(/\.(mkv|mp4|avi|m4v|webm|ts|ass|srt|sub|flac|mka|nfo|txt)$/i, "");
+    let prev;
+    do {
+      prev = label;
+      label = label.replace(/\s*[\[\(][^\]\)]*[\]\)]\s*$/, "");
+    } while(label !== prev && label);
+
+    label = label.trim() || full;
+
+    const isVid = /^video\//.test(String(f.mimetype || ""));
+    const size  = +pickField(f, ["size"], 0);
+    const attrs = 'data-tid="' + esc(String(tid)) + '" data-fid="' + esc(String(fid)) +
+                  '" data-name="' + esc(full) + '" data-folder="' + esc(torrentName) + '"';
+
+    return '<div class="frow2">' +
+      '<div class="fmain">' +
+        '<div class="flabel">' + esc(label) + '</div>' +
+        '<div class="fsize">' + esc(fmtBytes(size)) + '</div>' +
+      '</div>' +
+      (isVid ? '<button class="btn xplay" ' + attrs + '>Play</button>' : '') +
+      '<button class="btn xdl" ' + attrs + ' title="Save">&#8595;</button>' +
+    '</div>';
+  }).join("");
+
+  const vids = files.filter(f => /^video\//.test(String(f.mimetype || ""))).length;
+  const summary = files.length + (files.length === 1 ? " file" : " files") +
+                  (vids && vids !== files.length ? "  ·  " + vids + " video" : "") +
+                  (pre ? '  ·  <span class="fpre">' + esc(pre.trim()) + '</span>' : "");
+
+  return '<details class="xfiles"><summary>' + summary + '</summary>' + rows + '</details>';
 }
