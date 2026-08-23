@@ -379,3 +379,36 @@ footer{
   color:var(--red);border-color:#4d2a2c;background:rgba(224,87,92,.1);
   font-weight:650;
 }
+
+/* ================= poster cards ================= */
+.xcard{
+  --accent: var(--line);
+  position:relative;
+  padding-left:13px;
+  overflow:visible;                 /* the poster overhangs */
+  margin-top:20px;                  /* room for the overhang */
+  border-left:2px solid var(--accent);
+}
+.xtop{display:flex;gap:12px;align-items:flex-start}
+.poster{
+  flex:0 0 auto;width:64px;height:92px;border-radius:8px;
+  margin-top:-18px;                 /* sticks out of the card */
+  background:var(--panel2) center/cover no-repeat;
+  border:1px solid var(--line);
+  box-shadow:0 6px 18px rgba(0,0,0,.5);
+  position:relative;
+}
+.poster.has-art{border-color:var(--accent)}
+.poster:not(.has-art):after{
+  content:"";position:absolute;inset:0;border-radius:7px;
+  background:
+    linear-gradient(115deg, transparent 40%, rgba(255,255,255,.05) 50%, transparent 60%);
+}
+.xhead{flex:1;min-width:0}
+.showmeta{
+  font-size:11px;color:var(--accent);font-weight:600;
+  letter-spacing:.01em;margin-bottom:3px;min-height:14px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.xcard .xname{margin-bottom:5px}
+.xcard.gone .poster{filter:grayscale(1) brightness(.6)}

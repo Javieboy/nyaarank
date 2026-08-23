@@ -1421,12 +1421,18 @@ async function refreshTransfers(){
                 (eta && eta > 0 && eta < 86400 ? "  ·  " + Math.round(eta / 60) + " min left" : "") +
                 (seeds !== null ? "  ·  " + seeds + " seeds" : "");
 
-    return '<div class="xcard' + (expired ? " gone" : "") + '">' +
-      '<div class="xname">' + esc(name) + '</div>' +
+    return '<div class="xcard' + (expired ? " gone" : "") + '" data-show="' + esc(name) + '">' +
+      '<div class="xtop">' +
+        '<div class="poster"></div>' +
+        '<div class="xhead">' +
+          '<div class="showmeta"></div>' +
+          '<div class="xname">' + esc(name) + '</div>' +
       '<div class="xmeta">' +
         '<span class="' + (expired ? "v-bad" : done ? "v-good" : "") + '">' +
           esc(STATE_LABEL[state] || state || "queued") + '</span>' +
         (size ? '<span>' + esc(fmtBytes(size)) + '</span>' : '') +
+      '</div>' +
+        '</div>' +
       '</div>' +
       (done || expired ? '' :
         '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
@@ -1440,6 +1446,7 @@ async function refreshTransfers(){
   }).join("");
 
   $("#xdot").hidden = !anyActive;
+  decoratePosters($("#xfers"));
   if(anyActive) startXferPoll(); else stopXferPoll();
 }
 
@@ -1742,4 +1749,151 @@ function parseSeason(title){
   m = t.match(/\bS(\d{1,2})\b(?!\s?E)/i);                   // S2 - 10, S04
   if(m) return +m[1];
   return 1;
+}
+
+/* ====================================================================
+   POSTERS
+
+   nyaa gives filenames and nothing else — no metadata, no artwork. So
+   the show has to be identified from the release name and looked up.
+   AniList is free, needs no key, and returns the cover's dominant
+   colour along with the image, which the cards use as an accent.
+
+   Results are cached in localStorage permanently: a show's poster does
+   not change, and this keeps repeat searches to zero requests.
+   ==================================================================== */
+
+const SHOW_CACHE_KEY = "nyaarank.shows";
+let SHOW_CACHE = null;
+
+function showCache(){
+  if(SHOW_CACHE) return SHOW_CACHE;
+  try{ SHOW_CACHE = JSON.parse(localStorage.getItem(SHOW_CACHE_KEY) || "{}"); }
+  catch(e){ SHOW_CACHE = {}; }
+  return SHOW_CACHE;
+}
+function saveShowCache(){
+  try{ localStorage.setItem(SHOW_CACHE_KEY, JSON.stringify(SHOW_CACHE || {})); }
+  catch(e){}
+}
+
+/* Everything from here on is technical noise, not part of the show's name. */
+const R_CUT = new RegExp([
+  '\\b(?:19|20)\\d{2}\\b',
+  '\\b\\d{3,4}p\\b', '\\b\\d{3,4}x\\d{3,4}\\b',
+  '\\b(?:bd|bdrip|bdmv|blu-?ray|web-?dl|web-?rip|web|hdtv|dvd(?:rip)?|remux)\\b',
+  '\\b(?:x\\.?26[45]|h\\.?\\s?26[45]|hevc|avc|av1|vp9|xvid)\\b',
+  '\\b(?:hi10p?|ma10p|10-?bits?|8-?bits?)\\b',
+  '\\b(?:flac|aac|opus|ac3|eac3|dts|truehd|dual[\\s-]?audio|multi[\\s-]?audio)\\b',
+  '\\b(?:multi[\\s-]?subs?|multiple\\s+subtitle|dub|sub(?:bed)?)\\b',
+  '\\bS\\d{1,2}(?:\\s?E\\d{1,3})?\\b',
+  '\\b\\d{1,2}(?:st|nd|rd|th)\\s+season\\b',
+  '\\bseasons?\\s*\\d{1,2}\\b',
+  '\\bbatch\\b', '\\bcomplete\\b',
+  '\\((?:\\d{1,3})\\s*-\\s*(?:\\d{1,3})\\)',
+  '\\bpart\\s*\\d\\b', '\\bv\\d\\b'
+].join('|'), 'i');
+
+/** Reduces a release name to something searchable. */
+function showTitle(release){
+  let t = String(release || "").replace(/_/g, " ");
+  t = t.replace(/^\s*[\[\(][^\]\)]*[\]\)]\s*/, "");   // leading [group]
+  t = t.split("|")[0];                                 // alt titles after a pipe
+
+  const cut = t.search(R_CUT);
+  if(cut > 0) t = t.slice(0, cut);
+  const b = t.search(/[\[\(]/);
+  if(b > 0) t = t.slice(0, b);
+
+  t = t.replace(/\s*[-–—]\s*\d{1,3}\s*$/, "");         // trailing " - 08"
+  t = t.replace(/\s*[-–—:~]\s*$/, "");
+  return t.replace(/\s+/g, " ").trim();
+}
+
+const ANILIST_Q =
+  "query($s:String){Media(search:$s,type:ANIME){id title{romaji english}" +
+  "format seasonYear episodes averageScore coverImage{large color}}}";
+
+async function anilistSearch(term){
+  const r = await nativeRequest({
+    method: "POST",
+    url: "https://graphql.anilist.co",
+    headers: {"Content-Type": "application/json", "Accept": "application/json"},
+    body: {kind: "json", data: {query: ANILIST_Q, variables: {s: term}}}
+  }, 20000);
+  if(r.status !== 200) return null;
+  const j = JSON.parse(r.body);
+  return (j && j.data && j.data.Media) ? j.data.Media : null;
+}
+
+/**
+ * Looks a show up, cascading to shorter queries on a miss — scene releases
+ * drop punctuation ("Journeys" for "Journey's") which AniList will not match,
+ * but the first word or two still finds it.
+ */
+async function lookupShow(release){
+  const title = showTitle(release);
+  if(!title) return null;
+
+  const cache = showCache();
+  const key = title.toLowerCase();
+  if(cache[key] !== undefined) return cache[key];
+
+  const words = title.split(" ");
+  const tries = [title];
+  if(words.length > 2) tries.push(words.slice(0, 2).join(" "));
+  if(words.length > 1) tries.push(words[0]);
+
+  let hit = null;
+  for(const t of tries){
+    try{ hit = await anilistSearch(t); }catch(e){ hit = null; }
+    if(hit) break;
+  }
+
+  const val = hit ? {
+    title: (hit.title.english || hit.title.romaji || title),
+    img:   hit.coverImage ? hit.coverImage.large : "",
+    color: (hit.coverImage && hit.coverImage.color) || "",
+    year:  hit.seasonYear || "",
+    format: hit.format || "",
+    eps:   hit.episodes || 0,
+    score: hit.averageScore || 0
+  } : null;
+
+  cache[key] = val;          // null is cached too: do not re-ask for a miss
+  saveShowCache();
+  return val;
+}
+
+/**
+ * Fills in posters after the list is already on screen. Unique titles only —
+ * a search for one show yields forty releases but one lookup.
+ */
+async function decoratePosters(root){
+  if(!NATIVE) return;
+  const nodes = [...root.querySelectorAll("[data-show]")];
+  const groups = {};
+  for(const n of nodes){
+    const k = showTitle(n.dataset.show).toLowerCase();
+    if(!k) continue;
+    (groups[k] = groups[k] || []).push(n);
+  }
+
+  for(const k of Object.keys(groups)){
+    const info = await lookupShow(groups[k][0].dataset.show);
+    if(!info || !info.img) continue;
+    for(const n of groups[k]){
+      const art = n.querySelector(".poster");
+      if(!art) continue;
+      art.style.backgroundImage = "url('" + info.img + "')";
+      art.classList.add("has-art");
+      if(info.color) n.style.setProperty("--accent", info.color);
+      const meta = n.querySelector(".showmeta");
+      if(meta){
+        meta.textContent = [info.title, info.format, info.year,
+                            info.eps ? info.eps + " eps" : ""]
+                            .filter(Boolean).join("  ·  ");
+      }
+    }
+  }
 }
