@@ -412,3 +412,33 @@ footer{
 }
 .xcard .xname{margin-bottom:5px}
 .xcard.gone .poster{filter:grayscale(1) brightness(.6)}
+
+/* ---------- five tabs need tighter labels ---------- */
+.tabbar button{font-size:9.5px;letter-spacing:0;padding:8px 0 6px}
+.tabbar svg{width:20px;height:20px}
+.tabbar .dot{left:calc(50% + 8px)}
+
+/* ---------- Files tab ---------- */
+.dcard{
+  border:1px solid var(--line);border-radius:12px;background:var(--panel);
+  padding:12px 13px;margin-top:9px;
+}
+.dcard.ok{border-color:#22453f}
+.dcard.bad{border-color:#4d2a2c}
+.dname{
+  font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.45;
+  color:#e7e9f4;word-break:break-word;
+}
+.dfolder{
+  font-size:10.5px;color:var(--muted);margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.dcard .bar{margin:9px 0 4px}
+
+/* ---------- batch save ---------- */
+.btn.xall{
+  flex:1;min-height:36px;border-radius:8px;
+  background:var(--panel2);color:var(--teal);border:1px solid #22453f;
+  font-size:12px;font-weight:650;font-family:inherit;
+}
+.btn.xall:disabled{opacity:.6}

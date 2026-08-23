@@ -663,6 +663,7 @@ loadPrefs();
    TAB ROUTER
    ==================================================================== */
 const SCREENS = {search:"#scr-search", transfers:"#scr-transfers",
+                 downloads:"#scr-downloads",
                  account:"#scr-account", settings:"#scr-settings"};
 let activeTab = "search";
 
@@ -675,7 +676,9 @@ function showTab(name){
   if(name === "account") refreshAccount();   // on focus, not on a timer
   if(name === "settings") renderSettings();  // also clears any stuck state
   if(name === "transfers"){ xferDelay = 2000; refreshTransfers(); }
-  else stopXferPoll();                       // never poll a tab you cannot see
+  else stopXferPoll();
+  if(name === "downloads") renderDownloads();
+  else stopDlPoll();                       // never poll a tab you cannot see
 }
 
 $("#tabbar").addEventListener("click", e => {
@@ -1440,6 +1443,8 @@ async function refreshTransfers(){
       (sub ? '<div class="xmeta"><span>' + esc(sub) + '</span></div>' : '') +
       fileBtns +
       '<div class="xacts">' +
+        (done && files.length > 1
+          ? '<button class="btn xall">Save all</button>' : '') +
         '<button class="btn xdel" data-del="' + esc(String(id)) + '">Remove</button>' +
       '</div>' +
     '</div>';
@@ -1476,6 +1481,9 @@ function dlUrl(tid, fid){
 }
 
 $("#xfers").addEventListener("click", async e => {
+  const all = e.target.closest(".xall");
+  if(all){ saveAll(all); return; }
+
   const pl = e.target.closest(".xplay");
   if(pl){
     try{
@@ -1896,4 +1904,132 @@ async function decoratePosters(root){
       }
     }
   }
+}
+
+/* ====================================================================
+   FILES — what is actually on this phone
+
+   Separate from TorBox on purpose: that tab is a cloud queue, this one
+   is Android's DownloadManager. They fail in different ways and you
+   care about them at different times.
+   ==================================================================== */
+
+/* DownloadManager status constants */
+const DL_PENDING = 1, DL_RUNNING = 2, DL_PAUSED = 4, DL_OK = 8, DL_FAIL = 16;
+
+const DL_LABEL = {
+  1: "queued", 2: "downloading", 4: "paused", 8: "saved", 16: "failed"
+};
+
+let dlTimer = null;
+
+function localDownloads(){
+  try{
+    if(!NATIVE || !window.Nyaa.downloads) return [];
+    return JSON.parse(window.Nyaa.downloads() || "[]");
+  }catch(e){ return []; }
+}
+
+function renderDownloads(){
+  const el = $("#dloads");
+  if(!NATIVE){
+    el.innerHTML = '<div class="status">Downloads only exist in the Android app.</div>';
+    return;
+  }
+
+  const list = localDownloads();
+  const active = list.filter(d => d.status === DL_RUNNING || d.status === DL_PENDING).length;
+  $("#ddot").hidden = !active;
+  $("#dcount").textContent = list.length ? list.length + (active ? " · " + active + " active" : "") : "";
+
+  if(!list.length){
+    el.innerHTML = '<div class="status">Nothing downloaded yet.<br><br>' +
+      'Open a completed torrent on the <b>TorBox</b> tab and save a file, ' +
+      'or use <b>Save all</b> to take a whole batch at once.</div>';
+    stopDlPoll();
+    return;
+  }
+
+  // newest first — DownloadManager returns oldest first
+  list.reverse();
+
+  el.innerHTML = list.map(d => {
+    const pct = d.total > 0 ? Math.round(d.done / d.total * 100) : 0;
+    const running = d.status === DL_RUNNING || d.status === DL_PENDING;
+    const failed = d.status === DL_FAIL;
+    const ok = d.status === DL_OK;
+
+    const sub = ok      ? fmtBytes(d.done)
+              : failed  ? "failed" + (d.reason ? " (code " + d.reason + ")" : "")
+              : d.total > 0 ? fmtBytes(d.done) + " of " + fmtBytes(d.total)
+              : fmtBytes(d.done);
+
+    return '<div class="dcard' + (failed ? " bad" : ok ? " ok" : "") + '">' +
+      '<div class="dname">' + esc(d.title || "(unnamed)") + '</div>' +
+      (d.folder ? '<div class="dfolder">' + esc(d.folder) + '</div>' : '') +
+      (running || d.status === DL_PAUSED
+        ? '<div class="bar"><i style="width:' + pct + '%"></i></div>' : '') +
+      '<div class="xmeta">' +
+        '<span class="' + (ok ? "v-good" : failed ? "v-bad" : "") + '">' +
+          esc(DL_LABEL[d.status] || "unknown") +
+          (running && d.total > 0 ? "  ·  " + pct + "%" : "") + '</span>' +
+        '<span>' + esc(sub) + '</span>' +
+      '</div>' +
+      '<div class="xacts">' +
+        '<button class="btn xdel" data-dl="' + esc(String(d.id)) + '">' +
+          (running ? "Cancel" : "Remove from list") + '</button>' +
+      '</div>' +
+    '</div>';
+  }).join("");
+
+  if(active) startDlPoll(); else stopDlPoll();
+}
+
+/* Poll only while this tab is visible and something is moving. */
+function startDlPoll(){
+  stopDlPoll();
+  dlTimer = setTimeout(() => {
+    if(activeTab !== "downloads" || document.hidden){ stopDlPoll(); return; }
+    renderDownloads();
+  }, 1200);
+}
+function stopDlPoll(){
+  if(dlTimer){ clearTimeout(dlTimer); dlTimer = null; }
+}
+
+$("#dloads").addEventListener("click", e => {
+  const b = e.target.closest("[data-dl]");
+  if(!b) return;
+  try{ window.Nyaa.cancelDownload(b.dataset.dl); }catch(err){}
+  renderDownloads();
+});
+
+/* ====================================================================
+   BATCH SAVE
+   ==================================================================== */
+
+/**
+ * Queues every video in a torrent at once. DownloadManager handles its own
+ * concurrency, so these are simply enqueued back to back.
+ */
+function saveAll(btn){
+  const card = btn.closest(".xcard");
+  if(!card) return;
+  const rows = [...card.querySelectorAll(".btn.xdl[data-fid]")];
+  const vids = rows.filter(r => r.closest(".frow2") &&
+                                r.closest(".frow2").querySelector(".xplay"));
+  const targets = vids.length ? vids : rows;
+  if(!targets.length) return;
+
+  btn.disabled = true;
+  btn.textContent = "Queued " + targets.length;
+  for(const r of targets){
+    try{
+      window.Nyaa.download(dlUrl(r.dataset.tid, r.dataset.fid),
+                           r.dataset.name || "", r.dataset.folder || "");
+    }catch(e){}
+  }
+  $("#ddot").hidden = false;
+  alertLine(targets.length + (targets.length === 1 ? " file" : " files") +
+            " queued — see the Files tab");
 }

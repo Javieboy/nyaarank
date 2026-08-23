@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -448,6 +449,54 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 toast("No video player installed. VLC or MX Player will do.");
             }
+        }
+
+        /**
+         * Every download this app has started, straight from DownloadManager.
+         * It only ever returns our own, so no filtering by owner is needed —
+         * but the self-update APKs are excluded, since they are not something
+         * the Downloads screen should list.
+         */
+        @JavascriptInterface
+        public String downloads() {
+            JSONArray arr = new JSONArray();
+            DownloadManager dm =
+                    (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            if (dm == null) return "[]";
+
+            Cursor c = null;
+            try {
+                c = dm.query(new DownloadManager.Query());
+                while (c != null && c.moveToNext()) {
+                    String title = str(c, DownloadManager.COLUMN_TITLE);
+                    if (title != null && title.startsWith("nyaarank update")) continue;
+
+                    JSONObject o = new JSONObject();
+                    o.put("id",     lng(c, DownloadManager.COLUMN_ID));
+                    o.put("title",  title == null ? "" : title);
+                    o.put("folder", str(c, DownloadManager.COLUMN_DESCRIPTION));
+                    o.put("status", num(c, DownloadManager.COLUMN_STATUS));
+                    o.put("reason", num(c, DownloadManager.COLUMN_REASON));
+                    o.put("done",   lng(c, DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
+                    o.put("total",  lng(c, DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+                    arr.put(o);
+                }
+            } catch (Exception e) {
+                return "[]";
+            } finally {
+                if (c != null) try { c.close(); } catch (Exception ignored) {}
+            }
+            return arr.toString();
+        }
+
+        /** Cancels an in-flight download, or clears a finished row. */
+        @JavascriptInterface
+        public void cancelDownload(String id) {
+            try {
+                DownloadManager dm =
+                        (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                if (dm != null) dm.remove(Long.parseLong(id));
+            } catch (Exception ignored) {}
         }
 
         /**
@@ -1118,6 +1167,21 @@ public class MainActivity extends Activity {
                        .trim();
         if (s.length() > 90) s = s.substring(0, 90).trim();
         return s;
+    }
+
+    /* Cursor helpers: a missing column throws, and DownloadManager's set
+       varies by OEM, so every read is tolerant. */
+    private static String str(Cursor c, String col) {
+        try { return c.getString(c.getColumnIndexOrThrow(col)); }
+        catch (Exception e) { return null; }
+    }
+    private static long lng(Cursor c, String col) {
+        try { return c.getLong(c.getColumnIndexOrThrow(col)); }
+        catch (Exception e) { return 0L; }
+    }
+    private static int num(Cursor c, String col) {
+        try { return c.getInt(c.getColumnIndexOrThrow(col)); }
+        catch (Exception e) { return 0; }
     }
 
     private static String safeName(String name) {
