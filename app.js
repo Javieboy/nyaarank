@@ -1245,6 +1245,15 @@ async function sendToTorBox(it, btn){
   }
 }
 
+/* The Send button had no listener at all until now — it rendered and did
+   nothing when tapped. */
+$("#out").addEventListener("click", e => {
+  const b = e.target.closest("[data-tb]");
+  if(!b || b.disabled) return;
+  const it = RESULTS[+b.dataset.tb];
+  if(it) sendToTorBox(it, b);
+});
+
 function alertLine(msg){
   const bar = document.createElement("div");
   bar.className = "toast";

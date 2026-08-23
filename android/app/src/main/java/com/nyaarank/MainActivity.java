@@ -45,6 +45,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -446,9 +447,18 @@ public class MainActivity extends Activity {
      */
     private static String execute(JSONObject spec) throws Exception {
         URL url = new URL(spec.getString("url"));
+        final String host = url.getHost();
         try {
             return attempt(spec, url, null);
         } catch (IOException transportFail) {
+            // A host that has already answered directly is not DNS-blocked, so
+            // this failure is transient. Falling back to a by-IP connection
+            // actively makes it worse against a CDN: Cloudflare rejects the
+            // handshake when addressed by literal IP rather than by name.
+            // Retry directly instead.
+            if (DIRECT_OK.contains(host) && !(transportFail instanceof UnknownHostException)) {
+                return attempt(spec, url, null);
+            }
             // Indonesian ISPs block both nyaa.si and api.torbox.app at DNS, but
             // in two different ways: a carrier may return NXDOMAIN (throws
             // UnknownHostException) while Biznet answers with a poisoned IP
@@ -520,6 +530,8 @@ public class MainActivity extends Activity {
                 }
                 text = out.toString("UTF-8");
             }
+
+            if (ip == null) DIRECT_OK.add(url.getHost());
 
             JSONObject res = new JSONObject();
             res.put("status", code);
@@ -617,6 +629,10 @@ public class MainActivity extends Activity {
     // ------------------------------------------------------- DNS over HTTPS
 
     private static final Map<String, String> DNS_CACHE = new ConcurrentHashMap<>();
+
+    /** Hosts that have answered a direct connection at least once. */
+    private static final Set<String> DIRECT_OK =
+            Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
     /**
      * Resolves a hostname via Cloudflare DoH addressed by literal IP, so it
@@ -776,6 +792,7 @@ public class MainActivity extends Activity {
         String m = e.getMessage();
         if (m == null || m.isEmpty()) return e.getClass().getSimpleName();
         if (m.contains("://")) return e.getClass().getSimpleName();
+        if (m.length() > 150) m = m.substring(0, 150) + "…";
         return m;
     }
 
