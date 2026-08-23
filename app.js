@@ -2174,6 +2174,7 @@ function renderDownloads(){
     const items = groups[k];
     const saved  = items.filter(d => d.status === DL_OK).length;
     const pend   = items.filter(d => d.status === DL_QUEUED).length;
+    const stuck  = items.filter(d => d.status === DL_PAUSED).length;
     const busy   = items.filter(d => d.status === DL_RUNNING || d.status === DL_PENDING);
     const failed = items.filter(d => d.status === DL_FAIL).length;
 
@@ -2182,6 +2183,7 @@ function renderDownloads(){
     const pct = totalBytes > 0 ? Math.round(doneBytes / totalBytes * 100) : 0;
 
     const state = busy.length ? busy.length + " downloading" + (pend ? " · " + pend + " queued" : "")
+                : stuck ? stuck + " paused" + (pend ? " · " + pend + " queued" : "")
                 : pend ? pend + " queued"
                 : failed && !saved ? failed + " failed"
                 : failed ? saved + " saved · " + failed + " failed"
@@ -2201,6 +2203,7 @@ function renderDownloads(){
       label = label.trim() || names[i];
 
       const queued  = d.status === DL_QUEUED;
+      const held    = d.status === DL_PAUSED;
       const running = d.status === DL_RUNNING || d.status === DL_PENDING;
       const ok = d.status === DL_OK;
       const bad = d.status === DL_FAIL;
@@ -2213,6 +2216,7 @@ function renderDownloads(){
           '<div class="fsize' + (bad ? " v-bad" : "") + '">' +
             (ok ? fmtBytes(d.done)
                : bad ? dlReason(d.reason)
+               : held ? pauseReason(d.reason)
                : queued ? "queued"
                : running ? (() => {
                    const rate = speedOf(d);
@@ -2226,7 +2230,7 @@ function renderDownloads(){
           (running ? '<div class="bar mini"><i style="width:' + fpct + '%"></i></div>' : '') +
         '</div>' +
         (ok ? '<button class="btn xplay" data-open="' + esc(String(d.id)) + '">Play</button>' : '') +
-        (bad ? '<button class="btn xretry1" data-retry="' + esc(String(d.id)) + '">Retry</button>' : '') +
+        ((bad || held) ? '<button class="btn xretry1" data-retry="' + esc(String(d.id)) + '">Retry</button>' : '') +
         // a queued file has no DownloadManager id yet, so it is dropped by name
         (queued
           ? '<button class="btn xdl ddel" data-deq="' + esc(d.title) +
@@ -2267,7 +2271,8 @@ function renderDownloads(){
   // queued files are listed in place now, so no separate note is needed
   patchList(el, "#scr-downloads", html);
   decoratePosters(el);
-  if(active || waiting) startDlPoll(); else stopDlPoll();
+  const held = list.filter(d => d.status === DL_PAUSED).length;
+  if(active || waiting || held) startDlPoll(); else stopDlPoll();
 }
 
 /* Delete removes the file from the phone, so it asks first — the same
@@ -2447,6 +2452,24 @@ function retryOne(d){
  * and its own constants otherwise. "code 502" tells you nothing; "server
  * error 502" at least says whose fault it was.
  */
+/**
+ * A paused download reports why, and the codes mean something different
+ * from the failure codes — 1 is "waiting to retry" here and "storage
+ * error" there, so status has to pick the table.
+ *
+ * There is no public resume API: Android restarts these itself once the
+ * condition clears. Retry re-queues from scratch, which is the only way
+ * out of one that never does.
+ */
+function pauseReason(code){
+  return {
+    1: "waiting to retry",
+    2: "waiting for a connection",
+    3: "waiting for wi-fi",
+    4: "paused by the system"
+  }[code] || "paused";
+}
+
 function dlReason(code){
   const own = {
     1001: "storage error",
