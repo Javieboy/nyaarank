@@ -1388,7 +1388,7 @@ async function refreshTransfers(){
   // actually says whether the files are still on TorBox — a torrent can sit
   // at progress 1 and still be gone, because TorBox expires them.
   let anyActive = false;
-  $("#xfers").innerHTML = list.map(t => {
+  const xhtml = list.map(t => {
     const id      = pickField(t, ["id"], "");
     const name    = pickField(t, ["name"], "(unnamed)");
     const state   = String(pickField(t, ["download_state"], "")).toLowerCase();
@@ -1450,6 +1450,7 @@ async function refreshTransfers(){
     '</div>';
   }).join("");
 
+  patchList($("#xfers"), "#scr-transfers", xhtml);
   $("#xdot").hidden = !anyActive;
   decoratePosters($("#xfers"));
   if(anyActive) startXferPoll(); else stopXferPoll();
@@ -1494,6 +1495,13 @@ $("#xfers").addEventListener("click", async e => {
 
   const dl = e.target.closest("[data-fid]");
   if(dl){
+    if(alreadyQueued(dl.dataset.name, dl.dataset.folder)){
+      const had = dl.textContent;
+      dl.textContent = "✓";
+      alertLine("Already saved — it is on the Files tab");
+      setTimeout(() => { dl.textContent = had; }, 2000);
+      return;
+    }
     dl.disabled = true;
     const was = dl.textContent;
     dl.textContent = "Getting link…";
@@ -1923,6 +1931,54 @@ const DL_LABEL = {
 
 let dlTimer = null;
 
+/**
+ * Swaps in new markup without losing what the user had open.
+ *
+ * Both lists poll while something is active, and replacing innerHTML
+ * destroys every expanded <details> and jumps the scroll — so an open
+ * episode list snapped shut roughly once a second.
+ */
+function patchList(root, screenSel, html){
+  const wasOpen = new Set(
+    [...root.querySelectorAll(".xcard")]
+      .filter(c => c.querySelector("details[open]"))
+      .map(c => c.dataset.show || "")
+  );
+  const screen = $(screenSel);
+  const y = screen ? screen.scrollTop : 0;
+
+  root.innerHTML = html;
+
+  for(const c of root.querySelectorAll(".xcard")){
+    if(wasOpen.has(c.dataset.show || "")){
+      const d = c.querySelector("details");
+      if(d) d.open = true;
+    }
+  }
+  if(screen) screen.scrollTop = y;
+}
+
+/* Mirrors safeName/safeFolder in MainActivity, so a file already queued can
+   be recognised by the name DownloadManager actually stored. */
+function dmName(s){
+  const t = String(s || "").replace(/[\\/:*?"<>|\r\n]/g, "_").trim();
+  return (t.length > 120 ? t.slice(0, 120) : t) || "nyaarank-download";
+}
+function dmFolder(s){
+  const t = String(s || "").replace(/[\\/:*?"<>|\r\n]/g, "_")
+                           .replace(/^[.\s]+/, "").trim();
+  return t.length > 90 ? t.slice(0, 90).trim() : t;
+}
+
+/** Already saved, or already on its way. */
+function alreadyQueued(name, folder){
+  const n = dmName(name), f = dmFolder(folder);
+  return localDownloads().some(d =>
+    String(d.title || "") === n &&
+    String(d.folder || "") === f &&
+    (d.status === DL_OK || d.status === DL_RUNNING || d.status === DL_PENDING));
+}
+
 function localDownloads(){
   try{
     if(!NATIVE || !window.Nyaa.downloads) return [];
@@ -1959,17 +2015,29 @@ function saveAll(btn){
   const targets = vids.length ? vids : rows;
   if(!targets.length) return;
 
+  // Skip anything already saved or in flight, or a second tap silently
+  // downloads the whole batch again alongside the first.
+  const fresh = targets.filter(r => !alreadyQueued(r.dataset.name, r.dataset.folder));
+  const skipped = targets.length - fresh.length;
+
+  if(!fresh.length){
+    btn.textContent = "Already saved";
+    setTimeout(() => { btn.textContent = "Save all"; }, 2500);
+    alertLine("All " + targets.length + " already saved or downloading");
+    return;
+  }
+
   btn.disabled = true;
-  btn.textContent = "Queued " + targets.length;
-  for(const r of targets){
+  btn.textContent = "Queued " + fresh.length;
+  for(const r of fresh){
     try{
       window.Nyaa.download(dlUrl(r.dataset.tid, r.dataset.fid),
                            r.dataset.name || "", r.dataset.folder || "");
     }catch(e){}
   }
   $("#ddot").hidden = false;
-  alertLine(targets.length + (targets.length === 1 ? " file" : " files") +
-            " queued — see the Files tab");
+  alertLine(fresh.length + (fresh.length === 1 ? " file" : " files") + " queued" +
+            (skipped ? ", " + skipped + " already had" : "") + " — see the Files tab");
 }
 
 /* ====================================================================
@@ -2007,12 +2075,17 @@ function renderDownloads(){
     const k = d.folder || "nyaarank";
     (groups[k] = groups[k] || []).push(d);
   }
+  // episode order, not DownloadManager order
+  for(const k of Object.keys(groups)){
+    groups[k].sort((a, b) => String(a.title || "").localeCompare(
+      String(b.title || ""), undefined, {numeric: true, sensitivity: "base"}));
+  }
   const keys = Object.keys(groups).reverse();   // newest release first
 
   $("#dcount").textContent = keys.length + (keys.length === 1 ? " show" : " shows") +
                              (active ? " · " + active + " active" : "");
 
-  el.innerHTML = keys.map(k => {
+  const html = keys.map(k => {
     const items = groups[k];
     const saved  = items.filter(d => d.status === DL_OK).length;
     const busy   = items.filter(d => d.status === DL_RUNNING || d.status === DL_PENDING);
@@ -2082,6 +2155,7 @@ function renderDownloads(){
     '</div>';
   }).join("");
 
+  patchList(el, "#scr-downloads", html);
   decoratePosters(el);
   if(active) startDlPoll(); else stopDlPoll();
 }
