@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  nyaa.si chains through "ISRG Root YR", a Let's Encrypt root issued in 2025
+  that this device's CA store does not carry, so the handshake fails with
+  "trust anchor for certification path not found" even though the certificate
+  is perfectly valid.
+
+  Both roots below are the genuine published ISRG certificates, fetched from
+  letsencrypt.org and fingerprint-checked, not copies taken from the server
+  that presents them:
+
+    isrg_root_yr  E5:7B:7E:6F:15:0C:41:91:02:E8:D5:C0:55:72:9F:F9:...
+    isrg_root_x1  96:BC:EC:06:26:49:76:F3:74:60:77:9A:CF:28:C5:A7:...
+
+  Both are included because the server sends Root YR cross-signed by X1, so
+  the path can terminate at either one depending on what the device already
+  has. "system" stays first: this ADDS two public roots, it does not replace
+  or weaken normal validation.
+
+  Scoped to base-config rather than a domain-config for nyaa.si because when
+  DNS is blocked the app connects by IP address, and domain rules key off the
+  URL host, which is then a literal address.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/isrg_root_yr" />
+            <certificates src="@raw/isrg_root_x1" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
