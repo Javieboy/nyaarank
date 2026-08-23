@@ -654,6 +654,7 @@ const TB = {
   BASE: "https://api.torbox.app/v1/api",
   token: "",
   me: null,
+  apiLocked: false,   // paid-plan gate hit at least once
 
   loadToken(){
     try{
@@ -684,6 +685,10 @@ const TB = {
     catch(e){
       throw new Error("TorBox sent a non-JSON reply (HTTP " + r.status + ")");
     }
+    // TorBox gates its whole torrent API behind a paid plan. Auth and
+    // /user/me work on Free, everything else answers with this. Remember it
+    // so the UI stops offering features that cannot work.
+    if(env && env.error === "PLAN_RESTRICTED_FEATURE") TB.apiLocked = true;
     return {status: r.status, env: env};
   }
 };
@@ -1119,8 +1124,9 @@ function planCap(){
  * Failures are non-fatal: without TorBox the app still ranks normally.
  */
 async function markCached(items){
-  if(!NATIVE || !TB.signedIn()) return false;
+  if(!NATIVE || !TB.signedIn() || TB.apiLocked) return false;
 
+  const wasLocked = TB.apiLocked;
   const need = [];
   for(const it of items){
     const h = it.hash;
@@ -1153,15 +1159,15 @@ async function markCached(items){
 
     for(const h of need) CACHE_SEEN[h] = !!hits[String(h).toLowerCase()];
     for(const it of items) if(it.hash) it.cached = !!CACHE_SEEN[it.hash];
-    return Object.keys(hits).length > 0;
+    return Object.keys(hits).length > 0 || (TB.apiLocked && !wasLocked);
   }catch(e){
-    return false;
+    return TB.apiLocked && !wasLocked;
   }
 }
 
 /** The Send-to-TorBox row under a result, or "" when it does not apply. */
 function tbAction(it, i){
-  if(!NATIVE || !TB.signedIn()) return "";
+  if(!NATIVE || !TB.signedIn() || TB.apiLocked) return "";
 
   const cap = planCap();
   const over = cap && it.sizeMB * 1048576 > cap;
@@ -1229,7 +1235,24 @@ const STATE_LABEL = {
   paused:"paused", checkingResumeData:"checking"
 };
 
+/* TorBox allows auth and /user/me on Free but gates the entire torrent API
+   behind a subscription. Say so once, plainly, instead of surfacing the same
+   error on every screen that touches it. */
+function renderApiLocked(el){
+  el.innerHTML =
+    '<div class="acard">' +
+      '<h3>Needs a paid TorBox plan</h3>' +
+      '<p class="hint" style="margin:6px 0 0">TorBox lets free accounts sign in, ' +
+        'but its torrent API — checking what is cached, adding torrents, and ' +
+        'downloading them — is available on paid plans only.</p>' +
+      '<p class="hint">Everything else in nyaarank works without it: search, ' +
+        'ranking, the size meter, magnets. You just do the downloading yourself ' +
+        'with a torrent app instead of through TorBox.</p>' +
+    '</div>';
+}
+
 async function refreshTransfers(){
+  if(TB.apiLocked){ renderApiLocked($("#xfers")); return; }
   if(!NATIVE || !TB.signedIn()){
     $("#xfers").innerHTML =
       '<div class="status">Sign in to TorBox on the Account tab to send ' +
@@ -1245,6 +1268,7 @@ async function refreshTransfers(){
     if(!r.env.success) throw new Error(r.env.detail || r.env.error || "failed");
     list = Array.isArray(r.env.data) ? r.env.data : (r.env.data ? [r.env.data] : []);
   }catch(e){
+    if(TB.apiLocked){ renderApiLocked($("#xfers")); return; }
     $("#xfers").innerHTML = '<div class="status err"><b>Couldn\'t load transfers</b>' +
       '<code>' + esc(e.message || String(e)) + '</code></div>';
     return;
