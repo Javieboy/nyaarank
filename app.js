@@ -179,6 +179,7 @@ function parseRelease(title){
     group, tier, note,
     resolution: res || "1080p", resKnown: !!res,
     codec, source: detectSource(n),
+    season: parseSeason(title),
     episodes: eps, isBatch, epConf,
     tenBit: R.tenbit.test(n) || /ma10p/i.test(n),
     dual: R.dual.test(n), flac: R.flac.test(n),
@@ -472,17 +473,27 @@ function tagsOf(it){
 }
 
 let RESULTS = [];
+let SEASON_NOTE = "";   // e.g. " · S1", shown next to the result count
 
 function render(items, q){
   RESULTS = items;
-  $("#hcount").textContent = items.length ? items.length + " ranked" : "";
+  $("#hcount").textContent = items.length ? items.length + " ranked" + SEASON_NOTE : "";
   if(!items.length){
     out.innerHTML = `<div class="status">Nothing for “${esc(q)}”.<br><br>
       Try the romaji title — nyaa indexes what uploaders typed, so
       “Sousou no Frieren” finds more than “Frieren”.</div>`;
     return;
   }
-  out.innerHTML = items.map((it, i) => {
+  // A season was asked for and nothing matched: say so rather than showing
+  // another season's results as though they were what was wanted.
+  const missed = / · no S(\d+)/.exec(SEASON_NOTE);
+  const banner = missed
+    ? `<div class="status" style="padding:14px 4px 4px">Nothing on nyaa's first
+       75 results is season ${missed[1]}. Showing everything else — the seasons
+       actually found are
+       ${[...new Set(items.map(i => "S" + i.parsed.season))].sort().join(", ")}.</div>`
+    : "";
+  out.innerHTML = banner + items.map((it, i) => {
     const sc = it.score >= 70 ? "s-hi" : it.score >= 45 ? "s-mid" : "s-lo";
     const why = it.why.map(w => `<li class="${w[0]}">${esc(w[1])}</li>`).join("");
     return `<div class="card">
@@ -530,11 +541,28 @@ out.addEventListener("click", async e => {
 });
 
 async function run(){
-  const q = $("#q").value.trim(); if(!q) return;
+  const typed = $("#q").value.trim(); if(!typed) return;
   $("#btn").disabled = true; $("#q").blur();
   out.innerHTML = `<div class="status"><span class="spin"></span>Searching nyaa…</div>`;
   try{
-    const raw = await fetchNyaa(q, "1_2", opts.trusted ? "2" : "0");
+    // The season is stripped from what nyaa is asked, because nyaa matches
+    // substrings: "season 1" matches the word Season in a Season 4 title,
+    // and "1" matches 1080p. It is applied here instead.
+    const {q, season} = parseQuery(typed);
+    const all = await fetchNyaa(q, "1_2", opts.trusted ? "2" : "0");
+
+    let raw = all, seasonNote = "";
+    if(season !== null){
+      const hit = all.filter(it => it.parsed.season === season);
+      if(hit.length){
+        raw = hit;
+        seasonNote = " · S" + season;
+      }else{
+        seasonNote = " · no S" + season;
+      }
+    }
+    SEASON_NOTE = seasonNote;
+
     const top = raw.slice(0, 40);
 
     // Ask TorBox which of these it already has before scoring: a cached
@@ -1645,4 +1673,55 @@ function filesBlock(tid, torrentName, files){
                   (vids && vids !== files.length ? "  ·  " + vids + " video" : "");
 
   return '<details class="xfiles"><summary>' + summary + '</summary>' + rows + '</details>';
+}
+
+/* ====================================================================
+   SEASON INTENT
+
+   nyaa AND-matches your terms as substrings, so "re zero season 1"
+   returns Season 4: "season" matches the word Season in the title and
+   "1" matches 1080p. Both satisfied, wrong show entirely.
+
+   So the season is taken out of the query before it is sent — it only
+   adds noise there — and applied here instead, where titles are already
+   being parsed.
+   ==================================================================== */
+
+const R_QSEASON = [
+  /\bseasons?\s*(\d{1,2})\b/i,          // season 2, seasons 2
+  /\b(\d{1,2})\s*(?:st|nd|rd|th)\s*season\b/i,  // 2nd season
+  /\bs\s?(\d{1,2})\b(?!\s?e\s?\d)/i     // s2, s02 — but not s02e05
+];
+
+/** Pulls a season out of the query and returns the query without it. */
+function parseQuery(raw){
+  let q = String(raw || "").trim();
+  let season = null;
+  for(const re of R_QSEASON){
+    const m = q.match(re);
+    if(m){
+      season = +m[1];
+      q = (q.slice(0, m.index) + " " + q.slice(m.index + m[0].length)).replace(/\s+/g, " ").trim();
+      break;
+    }
+  }
+  return {q: q || String(raw || "").trim(), season};
+}
+
+/**
+ * Season of a release. Anime titles omit it for a first season far more
+ * often than not, so no marker means season 1 — which is also what makes
+ * filtering for season 1 useful at all.
+ */
+function parseSeason(title){
+  const t = String(title || "").replace(/_/g, " ");
+  let m = t.match(/\bS(\d{1,2})\s?E\s?\d{1,3}\b/i);        // S04E13
+  if(m) return +m[1];
+  m = t.match(/\b(\d{1,2})\s*(?:st|nd|rd|th)\s+season\b/i); // 4th Season
+  if(m) return +m[1];
+  m = t.match(/\bseason\s*(\d{1,2})\b/i);                   // Season 4
+  if(m) return +m[1];
+  m = t.match(/\bS(\d{1,2})\b(?!\s?E)/i);                   // S2 - 10, S04
+  if(m) return +m[1];
+  return 1;
 }
