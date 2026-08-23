@@ -1343,16 +1343,22 @@ async function refreshTransfers(){
 
     // Only offer files that are actually there, and put video first — the
     // probe asking to stream a readme is what produced a 500 earlier.
+    // Video first, then natural order by name. Sorting by size put a cour in
+    // the order 08, 05, 11, 02 — technically "biggest first", practically
+    // nonsense for episodes.
     const files = (Array.isArray(t.files) ? t.files : []).slice().sort((a, b) => {
       const av = /^video\//.test(String(a.mimetype || "")) ? 0 : 1;
       const bv = /^video\//.test(String(b.mimetype || "")) ? 0 : 1;
-      return av - bv || (b.size || 0) - (a.size || 0);
+      if(av !== bv) return av - bv;
+      const an = String(pickField(a, ["short_name","name"], ""));
+      const bn = String(pickField(b, ["short_name","name"], ""));
+      return an.localeCompare(bn, undefined, {numeric: true, sensitivity: "base"});
     });
 
     const fileBtns = done && files.length ? filesBlock(id, name, files) : '';
 
     const sub = expired ? "expired — TorBox no longer holds these files"
-              : done    ? (files.length + " file" + (files.length === 1 ? "" : "s"))
+              : done    ? ""
               : (speed ? fmtBytes(speed) + "/s" : "") +
                 (eta && eta > 0 && eta < 86400 ? "  ·  " + Math.round(eta / 60) + " min left" : "") +
                 (seeds !== null ? "  ·  " + seeds + " seeds" : "");
@@ -1598,8 +1604,7 @@ function filesBlock(tid, torrentName, files){
 
   const vids = files.filter(f => /^video\//.test(String(f.mimetype || ""))).length;
   const summary = files.length + (files.length === 1 ? " file" : " files") +
-                  (vids && vids !== files.length ? "  ·  " + vids + " video" : "") +
-                  (pre ? '  ·  <span class="fpre">' + esc(pre.trim()) + '</span>' : "");
+                  (vids && vids !== files.length ? "  ·  " + vids + " video" : "");
 
   return '<details class="xfiles"><summary>' + summary + '</summary>' + rows + '</details>';
 }
