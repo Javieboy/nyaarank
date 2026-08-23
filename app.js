@@ -1358,15 +1358,34 @@ async function refreshTransfers(){
   if(!$("#xfers").querySelector(".xcard"))
     $("#xfers").innerHTML = '<div class="status"><span class="spin"></span> Loading…</div>';
 
-  let list;
+  let list, httpStatus = 0;
   try{
     const r = await TB.call("/torrents/mylist?bypass_cache=true&limit=50");
+    httpStatus = r.status;
     if(!r.env.success) throw new Error(r.env.detail || r.env.error || "failed");
     list = Array.isArray(r.env.data) ? r.env.data : (r.env.data ? [r.env.data] : []);
   }catch(e){
     if(TB.locked["/torrents/mylist"]){ renderApiLocked($("#xfers")); return; }
-    $("#xfers").innerHTML = '<div class="status err"><b>Couldn\'t load transfers</b>' +
-      '<code>' + esc(e.message || String(e)) + '</code></div>';
+
+    const msg = e.message || String(e);
+    // A Cloudflare 5xx is TorBox's backend failing behind their CDN. Their
+    // wording ("the origin is overloaded or misconfigured") is addressed to
+    // an administrator, not to you, and there is nothing to do but wait.
+    const theirFault = httpStatus >= 500 ||
+      /origin web server|cloudflare|overloaded|misconfigured|bad gateway|gateway time/i.test(msg);
+
+    $("#xfers").innerHTML = theirFault
+      ? '<div class="status err"><b>TorBox is having trouble</b>' +
+        'Their servers returned an error — nothing wrong on your side, and ' +
+        'nothing you saved is affected. It usually clears in a minute.' +
+        '<code>' + esc(msg.slice(0, 200)) + '</code>' +
+        '<button class="btn-ghost" id="xretry" style="margin-top:14px">Try again</button></div>'
+      : '<div class="status err"><b>Couldn\'t load transfers</b>' +
+        '<code>' + esc(msg) + '</code>' +
+        '<button class="btn-ghost" id="xretry" style="margin-top:14px">Try again</button></div>';
+
+    const rb = $("#xretry");
+    if(rb) rb.onclick = () => { xferDelay = 2000; refreshTransfers(); };
     return;
   }
 
