@@ -207,6 +207,23 @@ string to parse.
 The repo is public deliberately: private release assets need an Authorization
 header, and the only way to give the app one is to ship a token inside the APK.
 
+**The check reads `releases.atom`, not the API.** Unauthenticated
+`api.github.com` allows 60 requests an hour **per IP**, and an ISP that NATs
+its customers shares one address between thousands of them — so Check for
+updates returned HTTP 403 on a phone that had never called GitHub itself.
+Measured, not inferred: `/rate_limit` reported 0 of 60 remaining for an address
+that had made no requests of its own. `releases.atom` is served by the web host
+under no such quota, and since `tools-release.js` always names the asset
+`nyaarank-v<code>.apk`, the download URL follows from the tag. The API remains
+the fallback — it is the only source for the asset's exact size — and its
+non-200 body is now shown, because "GitHub returned HTTP 403" reads as a
+permission problem and sent debugging the wrong way for an hour.
+
+**Do not rename the release asset** without changing `parseReleasesAtom`. A
+HEAD request guards the derived URL, so a rename degrades to the API path
+rather than handing DownloadManager a 404 page to install — but that path is
+the rate-limited one.
+
 ---
 
 ## TorBox

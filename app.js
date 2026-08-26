@@ -1064,14 +1064,110 @@ function appVersion(){
   return {code: 0, name: "browser"};
 }
 
+/* The API is not the place to ask this from a phone. Unauthenticated it
+   allows 60 requests an hour per IP, and an ISP that NATs its customers
+   shares one address between thousands of them, so the check died with
+   HTTP 403 on a device that had never called GitHub itself. Measured, not
+   assumed: /rate_limit reported 0 of 60 remaining for an address that had
+   made no requests of its own.
+
+   releases.atom is served by the web host and carries no such quota, and
+   tools-release.js names every asset "nyaarank-v<code>.apk", so the download
+   URL follows from the tag rather than needing the API to report it. The API
+   is still tried when the feed cannot be read: it is the only source for the
+   asset's exact size, and on an un-NATed connection it works fine. */
 async function fetchLatestRelease(){
+  let feedStatus = 0;
+  try{
+    const r = await nativeRequest({
+      method: "GET",
+      url: "https://github.com/" + GH_REPO + "/releases.atom",
+      headers: {"Accept": "application/atom+xml", "User-Agent": "nyaarank"}
+    });
+    feedStatus = r.status;
+    if(r.status === 200){
+      const rel = parseReleasesAtom(r.body);
+      if(rel && await apkReachable(rel.url)) return rel;
+    }
+  }catch(e){ /* fall through to the API, which reports why */ }
+
+  return await fetchLatestReleaseApi(feedStatus);
+}
+
+function parseReleasesAtom(xml){
+  try{
+    const doc = new DOMParser().parseFromString(xml, "text/xml");
+    const entry = doc.getElementsByTagNameNS("*", "entry")[0];
+    if(!entry) return null;
+
+    // The first entry is the newest release. Its alternate link ends in
+    // /releases/tag/v<code>, which is the same integer the app compares
+    // against — no version string is parsed anywhere.
+    let tag = "";
+    for(const l of [...entry.getElementsByTagNameNS("*", "link")]){
+      const m = /\/releases\/tag\/(v\d+)/i.exec(l.getAttribute("href") || "");
+      if(m){ tag = m[1]; break; }
+    }
+    if(!tag) return null;
+
+    const code = parseInt(tag.replace(/^v/i, ""), 10);
+    if(!isFinite(code)) return null;
+
+    const content = entry.getElementsByTagNameNS("*", "content")[0];
+    return {
+      code: code,
+      tag: tag,
+      url: "https://github.com/" + GH_REPO + "/releases/download/" + tag +
+           "/nyaarank-" + tag + ".apk",
+      size: 0,                       // the feed does not carry asset sizes
+      notes: stripTags(content ? content.textContent : "")
+    };
+  }catch(e){ return null; }
+}
+
+/* content type="html" arrives as escaped markup; the update card shows it as
+   plain text. */
+function stripTags(html){
+  return String(html)
+    .replace(/<\/p>|<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/* Confirms the derived URL is really there, so a release whose asset was
+   named differently cannot hand DownloadManager a 404 page to install --
+   that fails later as something unrelated. A transport error here means the
+   check could not be made, not that the file is missing, so it does not
+   withhold an update the download itself would report on. */
+async function apkReachable(url){
+  try{
+    const r = await nativeRequest({method: "HEAD", url: url}, 20000);
+    return r.status === 200;
+  }catch(e){ return true; }
+}
+
+async function fetchLatestReleaseApi(feedStatus){
   const r = await nativeRequest({
     method: "GET",
     url: "https://api.github.com/repos/" + GH_REPO + "/releases/latest",
     headers: {"Accept": "application/vnd.github+json", "User-Agent": "nyaarank"}
   });
   if(r.status === 404) throw new Error("No releases published yet.");
-  if(r.status !== 200) throw new Error("GitHub returned HTTP " + r.status);
+  if(r.status !== 200){
+    // GitHub explains itself in the body. Printing only the number turned
+    // "API rate limit exceeded for <ip>" into "GitHub returned HTTP 403",
+    // which reads as a permission problem and points debugging the wrong way.
+    let why = "";
+    try{ why = String(JSON.parse(r.body).message || "").trim(); }catch(e){}
+    if(/rate limit/i.test(why)){
+      why = "your ISP shares one address between many customers and GitHub's " +
+            "hourly limit for it is used up. It resets within the hour.";
+    }
+    throw new Error("Update check failed (HTTP " + r.status +
+      (feedStatus && feedStatus !== 200 ? ", release feed " + feedStatus : "") +
+      ")" + (why ? " — " + why : ""));
+  }
 
   const j = JSON.parse(r.body);
   const tag = String(j.tag_name || "");
