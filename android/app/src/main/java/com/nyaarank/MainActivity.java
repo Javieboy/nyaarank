@@ -517,16 +517,28 @@ public class MainActivity extends Activity {
         public String players() {
             JSONArray out = new JSONArray();
             try {
-                Intent probe = new Intent(Intent.ACTION_VIEW);
-                probe.setDataAndType(Uri.parse("file:///x.mkv"), "video/*");
                 PackageManager pm = getPackageManager();
-                for (ResolveInfo ri : pm.queryIntentActivities(probe, 0)) {
-                    if (ri.activityInfo == null) continue;
-                    if (getPackageName().equals(ri.activityInfo.packageName)) continue;
-                    JSONObject o = new JSONObject();
-                    o.put("pkg", ri.activityInfo.packageName);
-                    o.put("name", String.valueOf(ri.loadLabel(pm)));
-                    out.put(o);
+                java.util.Set<String> seen = new java.util.HashSet<>();
+
+                // Probe both ways. A bare type matches players that declare no
+                // scheme, while a content: URI matches those that require one —
+                // querying with only a file: URI missed most of them.
+                Intent[] probes = new Intent[2];
+                probes[0] = new Intent(Intent.ACTION_VIEW);
+                probes[0].setType("video/*");
+                probes[1] = new Intent(Intent.ACTION_VIEW);
+                probes[1].setDataAndType(Uri.parse("content://media/external/video/media/1"), "video/*");
+
+                for (Intent probe : probes) {
+                    for (ResolveInfo ri : pm.queryIntentActivities(probe, PackageManager.MATCH_ALL)) {
+                        if (ri.activityInfo == null) continue;
+                        String p = ri.activityInfo.packageName;
+                        if (getPackageName().equals(p) || !seen.add(p)) continue;
+                        JSONObject o = new JSONObject();
+                        o.put("pkg", p);
+                        o.put("name", String.valueOf(ri.loadLabel(pm)));
+                        out.put(o);
+                    }
                 }
             } catch (Exception ignored) {}
             return out.toString();

@@ -384,8 +384,12 @@ async function fetchNyaa(query, cat, filt){
     const r = await nativeRequest({method:"GET", url:target});
     if(r.status !== 200) throw new Error("nyaa returned HTTP " + r.status);
     const items = parseFeed(r.body);
-    if(!items) throw new Error("nyaa returned no RSS items");
-    return items;
+    if(items) return items;
+    // A feed with no <item> is a search that matched nothing — a perfectly
+    // good response. Throwing here sent it down the same path as a blocked
+    // connection, so a typo looked identical to an ISP block.
+    if(/<rss|<channel/i.test(r.body)) return [];
+    throw new Error("nyaa did not return a feed");
   }
 
   let lastErr = "no proxy responded";
@@ -396,9 +400,11 @@ async function fetchNyaa(query, cat, filt){
       const r = await fetch(wrap(target), {signal: ctl.signal});
       clearTimeout(to);
       if(!r.ok){ lastErr = "proxy returned HTTP " + r.status; continue; }
-      const items = parseFeed(await r.text());
-      if(!items){ lastErr = "proxy returned no RSS items"; continue; }
-      return items;
+      const body = await r.text();
+      const items = parseFeed(body);
+      if(items) return items;
+      if(/<rss|<channel/i.test(body)) return [];      // matched nothing, not a failure
+      lastErr = "proxy returned no RSS items"; continue;
     }catch(e){ lastErr = e.name === "AbortError" ? "proxy timed out" : String(e.message || e); }
   }
   throw new Error(lastErr);
